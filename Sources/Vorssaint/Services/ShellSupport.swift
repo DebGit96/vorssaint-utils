@@ -232,7 +232,23 @@ enum Sudoers {
     }
 
     private static func pmsetDisableSleepOnQueue(_ on: Bool) -> Bool {
-        Shell.run("/usr/bin/sudo", ["-n", "/usr/bin/pmset", "disablesleep", on ? "1" : "0"]).status == 0
+        let standardResult = Shell.run("/usr/bin/sudo", ["-n", "/usr/bin/pmset", "disablesleep", on ? "1" : "0"])
+        if standardResult.status == 0 {
+            return true
+        }
+
+        // On corporate-managed Macs (CyberArk EPM / ServiceNow Elevate Trusted), non-interactive
+        // `sudo -n` is denied at PAM level (/private/cyberark/CyberArkEPMPAM) despite installed sudoers rules.
+        // Fall back to bare sudo in a pseudo-terminal (PTY) with credentials from the login Keychain.
+        if let password = SudoersSupport.keychainPassword() {
+            let ptyResult = SudoersSupport.runViaPTY(
+                command: ["/usr/bin/sudo", "/usr/bin/pmset", "disablesleep", on ? "1" : "0"],
+                password: password
+            )
+            return ptyResult.status == 0
+        }
+
+        return false
     }
 }
 

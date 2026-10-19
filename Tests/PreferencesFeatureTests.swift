@@ -387,5 +387,24 @@ enum PreferencesFeatureTests {
         suite.expect(SudoersSupport.clamshellRule(uid: uid_t.max)
                .range(of: #"^#[0-9]+ [A-Za-z0-9()=:,./ ]+$"#, options: .regularExpression) != nil,
                "the closed-lid sudoers rule never contains shell or sudoers metacharacters")
+
+        // Enterprise fallback: Keychain credential lookup returns nil for unknown service
+        suite.expect(SudoersSupport.keychainPassword(services: ["__nonexistent_test_service__"]) == nil,
+               "keychain lookup returns nil when no entry exists for service")
+
+        // Enterprise fallback: PTY runner handles successful command execution
+        let echoResult = SudoersSupport.runViaPTY(command: ["/bin/echo", "pty_test_ok"], password: "")
+        suite.expect(echoResult.status == 0 && echoResult.output.contains("pty_test_ok"),
+               "PTY runner executes command successfully and captures output")
+
+        // Enterprise fallback: PTY runner preserves non-zero exit code
+        let falseResult = SudoersSupport.runViaPTY(command: ["/usr/bin/false"], password: "")
+        suite.expect(falseResult.status == 1,
+               "PTY runner reports non-zero exit code for failing command")
+
+        // Enterprise fallback: PTY runner safely handles empty command
+        let emptyResult = SudoersSupport.runViaPTY(command: [], password: "")
+        suite.expect(emptyResult.status != 0,
+               "PTY runner reports error on empty command")
     }
 }
