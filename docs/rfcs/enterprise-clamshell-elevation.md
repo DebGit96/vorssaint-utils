@@ -115,7 +115,7 @@ The fallback has been prototyped and tested on macOS 15 (Apple Silicon) on an en
 - All repository test suites pass without warnings:
   ```text
   ./build.sh --test-suite=keep-awake  -> 151 checks OK
-  ./build.sh --test-suite=preferences -> 115 checks OK
+  ./build.sh --test-suite=preferences -> 119 checks OK
   ./build/VorssaintDeveloper --selftest -> SELFTEST OK
   ```
 
