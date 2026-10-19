@@ -4,6 +4,7 @@
 import AppKit
 import CoreServices
 import Darwin
+import os
 
 enum Shell {
     /// A command that stops answering must not keep a thread forever. Nothing
@@ -231,23 +232,35 @@ enum Sudoers {
         }
     }
 
+    private static let sudoersLog = Logger(subsystem: Bundle.main.bundleIdentifier ?? "vorssaint",
+                                           category: "sudoers")
+
     private static func pmsetDisableSleepOnQueue(_ on: Bool) -> Bool {
         let standardResult = Shell.run("/usr/bin/sudo", ["-n", "/usr/bin/pmset", "disablesleep", on ? "1" : "0"])
         if standardResult.status == 0 {
             return true
         }
 
+        sudoersLog.info("sudo -n pmset disablesleep \(on ? "1" : "0") failed with status \(standardResult.status)")
+
         // On corporate-managed Macs (CyberArk EPM / ServiceNow Elevate Trusted), non-interactive
-        // `sudo -n` is denied at PAM level (/private/cyberark/CyberArkEPMPAM) despite installed sudoers rules.
+        // sudo is denied at PAM level (/private/cyberark/CyberArkEPMPAM) despite installed rules.
         // Fall back to bare sudo in a pseudo-terminal (PTY) with credentials from the login Keychain.
         if let password = SudoersSupport.keychainPassword() {
             let ptyResult = SudoersSupport.runViaPTY(
                 command: ["/usr/bin/sudo", "/usr/bin/pmset", "disablesleep", on ? "1" : "0"],
                 password: password
             )
-            return ptyResult.status == 0
+            if ptyResult.status == 0 {
+                sudoersLog.info("Keychain PTY elevation succeeded for pmset disablesleep \(on ? "1" : "0")")
+                return true
+            } else {
+                sudoersLog.error("Keychain PTY elevation failed with status \(ptyResult.status)")
+                return false
+            }
         }
 
+        sudoersLog.notice("Elevation password not found in Keychain. Add item with: security add-generic-password -a \"$USER\" -s vorssaint-sudo -w -U")
         return false
     }
 }
