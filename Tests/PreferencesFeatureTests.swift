@@ -392,19 +392,43 @@ enum PreferencesFeatureTests {
         suite.expect(SudoersSupport.keychainPassword(services: ["__nonexistent_test_service__"]) == nil,
                "keychain lookup returns nil when no entry exists for service")
 
+        // Enterprise fallback: PTY runner safely handles empty command
+        let emptyResult = SudoersSupport.runViaPTY(command: [], password: "")
+        suite.expect(emptyResult.status != 0,
+               "PTY runner reports error on empty command")
+
         // Enterprise fallback: PTY runner handles successful command execution
         let echoResult = SudoersSupport.runViaPTY(command: ["/bin/echo", "pty_test_ok"], password: "")
         suite.expect(echoResult.status == 0 && echoResult.output.contains("pty_test_ok"),
                "PTY runner executes command successfully and captures output")
+
+        // Enterprise fallback: PTY runner resolves bare command names via PATH (execvp)
+        let unpathedResult = SudoersSupport.runViaPTY(command: ["echo", "pty_unpathed_ok"], password: "")
+        suite.expect(unpathedResult.status == 0 && unpathedResult.output.contains("pty_unpathed_ok"),
+               "PTY runner resolves bare commands via PATH")
 
         // Enterprise fallback: PTY runner preserves non-zero exit code
         let falseResult = SudoersSupport.runViaPTY(command: ["/usr/bin/false"], password: "")
         suite.expect(falseResult.status == 1,
                "PTY runner reports non-zero exit code for failing command")
 
-        // Enterprise fallback: PTY runner safely handles empty command
-        let emptyResult = SudoersSupport.runViaPTY(command: [], password: "")
-        suite.expect(emptyResult.status != 0,
-               "PTY runner reports error on empty command")
+        // Enterprise fallback: PTY runner detects password prompt and feeds credential
+        let promptCmd = ["/bin/sh", "-c", "read -p 'Password: ' pw; [ \"$pw\" = 'correct_pass_123' ]"]
+        let promptSuccess = SudoersSupport.runViaPTY(command: promptCmd, password: "correct_pass_123")
+        suite.expect(promptSuccess.status == 0,
+               "PTY runner detects password prompt and feeds credential")
+
+        // Enterprise fallback: PTY runner reports non-zero exit when password verification fails
+        let promptFailure = SudoersSupport.runViaPTY(command: promptCmd, password: "wrong_pass_456")
+        suite.expect(promptFailure.status != 0,
+               "PTY runner reports non-zero exit when password verification fails")
+
+        // Enterprise fallback: PTY runner aborts promptly upon authentication rejection banner
+        let rejectCmd = ["/bin/sh", "-c", "echo 'Password: '; read pw; echo 'Sorry, try again.'; sleep 4"]
+        let rejectStart = Date()
+        _ = SudoersSupport.runViaPTY(command: rejectCmd, password: "pw", timeout: 6.0)
+        let rejectDuration = Date().timeIntervalSince(rejectStart)
+        suite.expect(rejectDuration < 3.0,
+               "PTY runner aborts promptly upon authentication rejection banner")
     }
 }

@@ -24,13 +24,30 @@ enum SudoersSupport {
     static let keychainServices = ["vorssaint-sudo", "keepawake-sudo"]
 
     /// Fetches the elevation password from the login keychain if configured.
+    /// Tries the specified account first, then falls back to searching by service name alone.
     static func keychainPassword(services: [String] = keychainServices,
-                                 account: String = NSUserName()) -> String? {
+                                 account: String? = NSUserName()) -> String? {
         for service in services {
+            if let account = account, !account.isEmpty {
+                let query: [String: Any] = [
+                    kSecClass as String: kSecClassGenericPassword,
+                    kSecAttrService as String: service,
+                    kSecAttrAccount as String: account,
+                    kSecReturnData as String: true,
+                    kSecMatchLimit as String: kSecMatchLimitOne
+                ]
+                var item: CFTypeRef?
+                let status = SecItemCopyMatching(query as CFDictionary, &item)
+                if status == errSecSuccess, let data = item as? Data,
+                   let secret = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .newlines),
+                   secret.count >= 4 {
+                    return secret
+                }
+            }
+
             let query: [String: Any] = [
                 kSecClass as String: kSecClassGenericPassword,
                 kSecAttrService as String: service,
-                kSecAttrAccount as String: account,
                 kSecReturnData as String: true,
                 kSecMatchLimit as String: kSecMatchLimitOne
             ]
@@ -65,52 +82,96 @@ enum SudoersSupport {
             return (-1, "forkpty failed")
         }
         if pid == 0 {
-            execv(command[0], cArgs)
+            execvp(command[0], cArgs)
             _exit(127)
         }
 
         var output = Data()
         var buf = [UInt8](repeating: 0, count: 4096)
         var sent = false
+        var childReaped = false
+        var authRejected = false
+        var exitStatus: Int32 = 0
 
         let flags = fcntl(master, F_GETFL, 0)
         _ = fcntl(master, F_SETFL, flags | O_NONBLOCK)
 
         let deadline = Date().addingTimeInterval(timeout)
-        var exitStatus: Int32 = 0
 
         while Date() < deadline {
             var pfd = pollfd(fd: master, events: Int16(POLLIN), revents: 0)
-            let ret = poll(&pfd, 1, 100)
+            let ret = poll(&pfd, 1, 50)
             if ret > 0 && (pfd.revents & Int16(POLLIN)) != 0 {
                 let bytesRead = read(master, &buf, buf.count)
                 if bytesRead > 0 {
                     output.append(contentsOf: buf[0..<bytesRead])
                     let str = String(decoding: output, as: UTF8.self)
-                    if !sent && str.lowercased().contains("password") {
+                    let lower = str.lowercased()
+                    let isPrompt = lower.contains("password") ||
+                                   lower.contains("passcode") ||
+                                   lower.contains("passwort") ||
+                                   str.contains("assword")
+
+                    if !sent && isPrompt {
                         usleep(200_000)
-                        let pwData = (password + "\n").data(using: .utf8)!
+                        let cleanPassword = password.trimmingCharacters(in: .newlines)
+                        let pwData = (cleanPassword + "\n").data(using: .utf8)!
                         pwData.withUnsafeBytes { ptr in
                             _ = write(master, ptr.baseAddress!, pwData.count)
                         }
                         sent = true
+                    } else if sent && (str.contains("Sorry, try again") ||
+                                       lower.contains("incorrect password") ||
+                                       str.contains("Admin rights")) {
+                        authRejected = true
+                        kill(pid, SIGTERM)
+                        break
                     }
                 } else if bytesRead <= 0 {
                     break
                 }
             }
+
             let res = waitpid(pid, &exitStatus, WNOHANG)
-            if res == pid { break }
+            if res == pid {
+                childReaped = true
+                break
+            }
         }
 
-        if waitpid(pid, &exitStatus, WNOHANG) == 0 {
+        // Drain any remaining output buffered in master
+        while true {
+            let n = read(master, &buf, buf.count)
+            if n > 0 {
+                output.append(contentsOf: buf[0..<n])
+            } else {
+                break
+            }
+        }
+
+        // Bounded wait for normal child exit before killing
+        let waitDeadline = authRejected ? Date().addingTimeInterval(0.3) : deadline
+        while !childReaped && Date() < waitDeadline {
+            let res = waitpid(pid, &exitStatus, WNOHANG)
+            if res == pid {
+                childReaped = true
+                break
+            }
+            usleep(10_000)
+        }
+
+        if !childReaped {
             kill(pid, SIGKILL)
             waitpid(pid, &exitStatus, 0)
+            childReaped = true
         }
 
         close(master)
+
         let rc: Int32
-        if (exitStatus & 0x7F) == 0 {
+        if authRejected {
+            rc = 1
+        } else if (exitStatus & 0x7F) == 0 {
             rc = (exitStatus >> 8) & 0xFF
         } else {
             rc = 1
