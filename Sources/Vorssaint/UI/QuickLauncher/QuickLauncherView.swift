@@ -267,6 +267,9 @@ struct QuickLauncherView: View {
                     }
                 }
             } else {
+                if item == .keepAwake, keepAwake.isActive {
+                    keepAwake.clamshellPreferred = false
+                }
                 launcher.run(item)
             }
         } label: {

@@ -1036,34 +1036,31 @@ enum BlackHoleGlyph {
         return tintedImage(glyph, color: .systemBlue) ?? fallback(active: true)
     }
 
-    /// The given state image with a laptop symbol beside it, shown
-    /// while clamshell mode is active. Drawn against the destination
-    /// appearance, which keeps template glyphs and badges legible on both
-    /// light and dark menu bars.
+    /// The given state image with a circular indicator pip in the upper-right
+    /// corner, shown while clamshell mode is active. Retains the exact canvas
+    /// dimensions of the underlying image with zero width expansion.
     static func clamshellBadgedImage(over underlying: NSImage?) -> NSImage? {
         guard let underlying else { return nil }
-        guard let badge = NSImage(systemSymbolName: "laptopcomputer",
-                                  accessibilityDescription: nil)?
-            .withSymbolConfiguration(.init(pointSize: 11, weight: .semibold)) else { return nil }
-        let gap: CGFloat = 2
-        let badgeSize = badge.size
-        let height = max(underlying.size.height, badgeSize.height)
-        let size = NSSize(width: underlying.size.width + gap + badgeSize.width, height: height)
+        let size = underlying.size
+        let dotSize: CGFloat = 4.0
+        let dotRect = NSRect(x: size.width - dotSize - 1.0,
+                             y: size.height - dotSize - 1.0,
+                             width: dotSize,
+                             height: dotSize)
         let composed = NSImage(size: size, flipped: false) { _ in
-            let glyphRect = NSRect(x: 0, y: (height - underlying.size.height) / 2,
-                                   width: underlying.size.width, height: underlying.size.height)
+            let glyphRect = NSRect(origin: .zero, size: size)
             underlying.draw(in: glyphRect, from: .zero, operation: .sourceOver, fraction: 1)
             if underlying.isTemplate {
                 // Template pixels carry no usable color of their own.
                 NSColor.labelColor.setFill()
                 glyphRect.fill(using: .sourceAtop)
             }
-            let badgeRect = NSRect(x: underlying.size.width + gap,
-                                   y: (height - badgeSize.height) / 2,
-                                   width: badgeSize.width, height: badgeSize.height)
-            badge.draw(in: badgeRect, from: .zero, operation: .sourceOver, fraction: 1)
-            NSColor.labelColor.setFill()
-            badgeRect.fill(using: .sourceAtop)
+            let backingRect = dotRect.insetBy(dx: -0.5, dy: -0.5)
+            NSColor.black.withAlphaComponent(0.35).setFill()
+            NSBezierPath(ovalIn: backingRect).fill()
+            NSColor.systemOrange.setFill()
+            let path = NSBezierPath(ovalIn: dotRect)
+            path.fill()
             return true
         }
         composed.isTemplate = false
