@@ -24,6 +24,18 @@ struct QuickLauncherView: View {
     @AppStorage(DefaultsKey.clipboardHistoryEnabled) private var clipboardEnabled = false
     @AppStorage(DefaultsKey.clipboardHistoryLimit) private var clipboardLimit = 50
 
+    private var clamshellBinding: Binding<Bool> {
+        Binding(
+            get: { keepAwake.clamshellPreferred },
+            set: { on in
+                keepAwake.clamshellPreferred = on
+                if on, !keepAwake.isActive {
+                    keepAwake.startLastPick()
+                }
+            }
+        )
+    }
+
     private var columns: [GridItem] {
         Array(repeating: GridItem(.flexible(), spacing: notchSize == nil ? 10 : 6), count: notchSize == nil ? QuickLauncherService.columns : NotchSupport.toolColumns)
     }
@@ -434,7 +446,7 @@ struct QuickLauncherView: View {
                 // Same guard as the panel's Keep awake card: enabling the
                 // closed-lid rule can run an admin setup step, and flipping
                 // the switch again mid-setup would race it.
-                Toggle(l10n.s.clamshellTitle, isOn: $keepAwake.clamshellPreferred)
+                Toggle(l10n.s.clamshellTitle, isOn: clamshellBinding)
                     .disabled(keepAwake.clamshellSetupInProgress)
                 Picker(l10n.s.defaultDurationLabel, selection: $defaultDuration) {
                     Text(l10n.s.minutes15).tag(15)
