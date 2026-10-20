@@ -3017,6 +3017,7 @@ struct KeepAwakeCard: View {
         let selected = manualSession && awake.sessionMinutes == minutes
         return Button {
             if selected {
+                awake.clamshellPreferred = false
                 awake.toggle()
             } else {
                 awake.activate(minutes: minutes)
@@ -3048,7 +3049,10 @@ struct KeepAwakeCard: View {
     private var untilChip: some View {
         KeepAwakeEndTimePicker(selection: untilTime,
                                activeEnd: manualSession && awake.sessionMinutes == nil ? awake.endDate : nil,
-                               onStop: { awake.toggle() }) {
+                               onStop: {
+                                   awake.clamshellPreferred = false
+                                   awake.toggle()
+                               }) {
             awake.activate(until: KeepAwakeAutomationSupport.resolvedUntilDate(picked: untilTime.wrappedValue, now: Date()))
             untilDraft = nil
         }
@@ -3148,8 +3152,11 @@ struct KeepAwakeCard: View {
             set: { on in
                 if on {
                     awake.startLastPick()
-                } else if awake.isActive {
-                    awake.toggle()
+                } else {
+                    awake.clamshellPreferred = false
+                    if awake.isActive {
+                        awake.toggle()
+                    }
                 }
             }
         )

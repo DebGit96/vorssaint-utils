@@ -219,6 +219,37 @@ enum KeepAwakeClamshellTests {
         prefs.standard.set(false, forKey: Key.keepAwakeSwitchUsesUntil)
         prefs.standard.removeObject(forKey: Key.keepAwakeUntilTime)
 
+        // Bidirectional lifecycle coupling assertions:
+        let couplingService = C.reset()
+        couplingService.clamshellPreferred = true
+        couplingService.activate(minutes: 30)
+        expect(couplingService.isActive && couplingService.clamshellPreferred,
+               "starting a session with clamshell preserves clamshellPreferred")
+        couplingService.deactivate(reason: .manual); C.drain()
+        expect(!couplingService.isActive && !couplingService.clamshellPreferred,
+               "deactivating session manually resets clamshellPreferred to false")
+
+        couplingService.clamshellPreferred = true
+        couplingService.activate(minutes: 15)
+        expect(couplingService.isActive && couplingService.clamshellPreferred,
+               "starting timed session preserves clamshellPreferred")
+        couplingService.deactivate(reason: .timer); C.drain()
+        expect(!couplingService.isActive && !couplingService.clamshellPreferred,
+               "timer expiration deactivating session resets clamshellPreferred to false")
+
+        couplingService.clamshellPreferred = true
+        couplingService.activate(minutes: 15)
+        couplingService.deactivate(reason: .battery); C.drain()
+        expect(!couplingService.isActive && !couplingService.clamshellPreferred,
+               "battery protection deactivating session resets clamshellPreferred to false")
+
+        let quitService = C.reset()
+        quitService.clamshellPreferred = true
+        quitService.activate(minutes: 30)
+        quitService.deactivate(reason: .quit); C.drain()
+        expect(!quitService.isActive && quitService.clamshellPreferred,
+               "quitting application preserves user clamshellPreferred setting")
+
         // Contract checks for menu bar badge and binding architecture:
         let statusControllerSource = (try? String(
             contentsOfFile: "Sources/Vorssaint/App/StatusItemController.swift",
@@ -230,8 +261,13 @@ enum KeepAwakeClamshellTests {
                "StatusItemController subscribes to clamshellActive publisher")
         expect(statusControllerSource.contains("func clamshellBadgedImage(over underlying: NSImage?) -> NSImage?"),
                "BlackHoleGlyph defines clamshellBadgedImage(over:)")
-        expect(statusControllerSource.contains("laptopcomputer"),
-               "clamshellBadgedImage uses the laptopcomputer symbol")
+        expect(!statusControllerSource.contains("laptopcomputer"),
+               "clamshellBadgedImage does not use the wide laptopcomputer symbol")
+        expect(statusControllerSource.contains("NSBezierPath(ovalIn: dotRect)"),
+               "clamshellBadgedImage renders an upper-right corner circular indicator dot")
+        expect(statusControllerSource.contains("backingRect")
+               && statusControllerSource.contains("composed.isTemplate = false"),
+               "clamshellBadgedImage includes backing border for contrast and disables template mode")
 
         let menuPanelSource = (try? String(
             contentsOfFile: "Sources/Vorssaint/UI/MenuPanel/MenuPanelView.swift",
@@ -240,6 +276,9 @@ enum KeepAwakeClamshellTests {
                && menuPanelSource.contains("awake.startLastPick()")
                && menuPanelSource.contains("isOn: clamshellBinding"),
                "MenuPanelView optionRow uses clamshellBinding to auto-activate inactive sessions")
+        expect(menuPanelSource.contains("awake.clamshellPreferred = false")
+               && menuPanelSource.contains("awake.toggle()"),
+               "MenuPanelView resets clamshellPreferred when toggling Keep Awake off")
 
         let quickLauncherSource = (try? String(
             contentsOfFile: "Sources/Vorssaint/UI/QuickLauncher/QuickLauncherView.swift",
@@ -248,32 +287,60 @@ enum KeepAwakeClamshellTests {
                && quickLauncherSource.contains("keepAwake.startLastPick()")
                && quickLauncherSource.contains("isOn: clamshellBinding"),
                "QuickLauncherView toggle uses clamshellBinding to auto-activate inactive sessions")
+        expect(quickLauncherSource.contains("keepAwake.clamshellPreferred = false"),
+               "QuickLauncherView resets clamshellPreferred when toggling Keep Awake off")
 
-        // Visual badge geometry validation:
-        let laptopSymbol = NSImage(systemSymbolName: "laptopcomputer", accessibilityDescription: nil)?
-            .withSymbolConfiguration(.init(pointSize: 11, weight: .semibold))
-        expect(laptopSymbol != nil, "laptopcomputer symbol resolves on system")
-        if let laptopSymbol {
-            let baseSize = NSSize(width: 26, height: 20)
-            let gap: CGFloat = 2
-            let expectedWidth = baseSize.width + gap + laptopSymbol.size.width
-            let expectedHeight = max(baseSize.height, laptopSymbol.size.height)
-            expect(laptopSymbol.size.width > 0 && laptopSymbol.size.height > 0,
-                   "laptopcomputer symbol resolves with non-zero dimensions")
-            expect(expectedWidth > baseSize.width && expectedHeight == 20,
-                   "clamshell badged image dimensions match expected layout bounds")
+        // Visual badge geometry validation (zero-width top-right corner pip):
+        let baseSize = NSSize(width: 26, height: 20)
+        let dotSize: CGFloat = 4.0
+        let dotRect = NSRect(x: baseSize.width - dotSize - 1.0,
+                             y: baseSize.height - dotSize - 1.0,
+                             width: dotSize,
+                             height: dotSize)
+        expect(dotRect.maxX <= baseSize.width && dotRect.maxY <= baseSize.height
+               && dotRect.origin.x >= 0 && dotRect.origin.y >= 0,
+               "indicator pip is placed within the top-right bounds of the canvas")
+        expect(dotRect.width == 4.0 && dotRect.height == 4.0,
+               "indicator pip has a 4.0 pt diameter")
+
+        let testUnderlying = NSImage(size: baseSize)
+        testUnderlying.lockFocus()
+        NSColor.white.setFill()
+        NSRect(origin: .zero, size: baseSize).fill()
+        testUnderlying.unlockFocus()
+        testUnderlying.isTemplate = true
+
+        let badgedImage = NSImage(size: testUnderlying.size, flipped: false) { _ in
+            let glyphRect = NSRect(origin: .zero, size: testUnderlying.size)
+            testUnderlying.draw(in: glyphRect, from: .zero, operation: .sourceOver, fraction: 1)
+            if testUnderlying.isTemplate {
+                NSColor.labelColor.setFill()
+                glyphRect.fill(using: .sourceAtop)
+            }
+            let backingRect = dotRect.insetBy(dx: -0.5, dy: -0.5)
+            NSColor.black.withAlphaComponent(0.35).setFill()
+            NSBezierPath(ovalIn: backingRect).fill()
+            NSColor.systemOrange.setFill()
+            let path = NSBezierPath(ovalIn: dotRect)
+            path.fill()
+            return true
         }
+        badgedImage.isTemplate = false
+
+        expect(badgedImage.size == baseSize,
+               "clamshell badged image maintains exact same dimensions as underlying image (zero horizontal expansion)")
+        expect(!badgedImage.isTemplate,
+               "clamshell badged image preserves isTemplate false to display accent color")
 
         let micSymbol = NSImage(systemSymbolName: "mic.slash.fill", accessibilityDescription: nil)?
             .withSymbolConfiguration(.init(pointSize: 12, weight: .semibold))
         expect(micSymbol != nil, "mic.slash.fill symbol resolves on system")
-        if let laptopSymbol, let micSymbol {
-            let baseSize = NSSize(width: 26, height: 20)
+        if let micSymbol {
             let gap: CGFloat = 2
-            let compositeWidth = baseSize.width + gap + laptopSymbol.size.width + gap + micSymbol.size.width
-            let compositeHeight = max(baseSize.height, max(laptopSymbol.size.height, micSymbol.size.height))
-            expect(compositeWidth > baseSize.width + laptopSymbol.size.width && compositeHeight == 20,
-                   "composite clamshell and mic mute badges fit within menu bar vertical bounds")
+            let compositeWidth = badgedImage.size.width + gap + micSymbol.size.width
+            let compositeHeight = max(badgedImage.size.height, micSymbol.size.height)
+            expect(compositeWidth == baseSize.width + gap + micSymbol.size.width && compositeHeight == 20,
+                   "composite mic mute badge composes cleanly over zero-width clamshell badged image")
         }
 
         let staleStatus = C.reset(); staleStatus.isActive = true
@@ -304,6 +371,9 @@ enum KeepAwakeClamshellTests {
         removedRule.deactivate(reason: .manual); C.drain()
         expect(C.Sudoers.calls.isEmpty && C.AdminShell.prompts == 0,
                "ending that session asks for nothing, since sleep is already back on")
+        expect(!removedRule.clamshellPreferred,
+               "ending that session resets clamshellPreferred")
+        removedRule.clamshellPreferred = true
         removedRule.activate(end: nil, trigger: .manual); C.drain()
         expect(C.Sudoers.installCompletions.count == 1,
                "the next session requests the removed rule the usual way")
@@ -340,6 +410,9 @@ enum KeepAwakeClamshellTests {
 
         let pendingRestore = active(); C.Sudoers.results = [false, true]
         pendingRestore.deactivate(reason: .manual); C.drain()
+        expect(!pendingRestore.clamshellPreferred,
+               "ending session resets clamshellPreferred")
+        pendingRestore.clamshellPreferred = true
         pendingRestore.activate(end: nil, trigger: .manual); C.drain()
         C.Sudoers.disabled = false
         pendingRestore.resumeAfterSystemTeardown(); C.drain()
@@ -432,6 +505,9 @@ enum KeepAwakeClamshellTests {
         let restoring = active(); C.Sudoers.results = [false, true]
         restoring.deactivate(reason: .manual)
         C.drain()
+        expect(!restoring.clamshellPreferred,
+               "ending session resets clamshellPreferred")
+        restoring.clamshellPreferred = true
         restoring.activate(end: nil, trigger: .manual)
         C.drain()
         expect(C.Sudoers.calls == [false] && C.AdminShell.prompts == 1,
@@ -528,9 +604,12 @@ enum KeepAwakeClamshellTests {
         staleSetup.prepareClamshellPreference(); C.drain()
         C.Sudoers.results = [false]
         staleSetup.deactivate(reason: .manual); C.drain()
+        expect(!staleSetup.clamshellPreferred,
+               "ending session resets clamshellPreferred")
+        staleSetup.clamshellPreferred = true
         C.Sudoers.configured = true
         C.Sudoers.installCompletions.forEach { $0(true) }; C.drain()
-        expect(staleSetup.clamshellPreferred && C.AdminShell.prompts == 1,
+        expect(staleSetup.clamshellPreferred && !staleSetup.clamshellSetupFailed && C.AdminShell.prompts == 1,
                "a setup reply invalidated by restore cannot open another prompt or turn off the saved preference")
         C.BrightnessService.lid = false
         C.AdminShell.answer(true); C.drain()

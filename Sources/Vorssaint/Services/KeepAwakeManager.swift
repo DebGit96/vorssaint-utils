@@ -324,6 +324,9 @@ final class KeepAwakeManager: ObservableObject {
         sessionPausedForScreenLock = false
         stopBatteryWatch()
         stopMouseJiggleTimer()
+        if reason != .quit {
+            clamshellPreferred = false
+        }
         // An enable can still be on the serialized native queue even though
         // its main-thread reply has not marked the session active yet.
         if clamshellNeedsRestore {
