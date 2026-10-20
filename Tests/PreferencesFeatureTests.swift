@@ -485,6 +485,93 @@ enum PreferencesFeatureTests {
         }
         suite.expect(cancelResult == nil,
                "promptForElevationPassword delivers nil when user cancels")
+
+        // Enterprise fallback: saveKeychainPassword rejects empty string
+        let emptySave = SudoersSupport.saveKeychainPassword("", service: testService, account: testAccount)
+        suite.expect(!emptySave,
+               "saveKeychainPassword rejects empty password")
+
+        // Enterprise lifecycle: isolated setup using dedicated testService and ruleFileDetector mock
+        let originalPrimary = SudoersSupport.primaryKeychainService
+        let originalServices = SudoersSupport.keychainServices
+        let originalDetector = Sudoers.ruleFileDetector
+        SudoersSupport.primaryKeychainService = testService
+        SudoersSupport.keychainServices = [testService]
+        Sudoers.ruleFileDetector = { false }
+
+        // Enterprise lifecycle: Sudoers.install returns false when prompt is canceled
+        var installCancelResult: Bool?
+        let sema1 = DispatchSemaphore(value: 0)
+        SudoersSupport.deleteKeychainPassword(service: testService)
+        SudoersSupport.mockElevationPromptHandler = { completion in
+            completion(nil)
+        }
+        Sudoers.install { ok in
+            installCancelResult = ok
+            sema1.signal()
+        }
+        _ = sema1.wait(timeout: .now() + 3.0)
+        suite.expect(installCancelResult == false,
+               "Sudoers.install returns false when prompt is canceled")
+
+        // Enterprise lifecycle: Sudoers.install returns false and purges bad credential when PTY verification fails
+        var installFailResult: Bool?
+        let sema2 = DispatchSemaphore(value: 0)
+        SudoersSupport.deleteKeychainPassword(service: testService)
+        SudoersSupport.mockElevationPromptHandler = { completion in
+            completion("wrong-enterprise-pass")
+        }
+        SudoersSupport.verificationRunner = { _, _ in
+            return (1, "sudo: 1 incorrect password attempt")
+        }
+        Sudoers.install { ok in
+            installFailResult = ok
+            sema2.signal()
+        }
+        _ = sema2.wait(timeout: .now() + 3.0)
+        suite.expect(installFailResult == false,
+               "Sudoers.install returns false when password verification fails")
+        suite.expect(SudoersSupport.keychainPassword(services: [testService]) == nil,
+               "Sudoers.install removes bad password from keychain on verification failure")
+
+        // Enterprise lifecycle: Sudoers.install saves and marks ok = true when PTY verification succeeds
+        var installSuccessResult: Bool?
+        let sema3 = DispatchSemaphore(value: 0)
+        SudoersSupport.deleteKeychainPassword(service: testService)
+        SudoersSupport.mockElevationPromptHandler = { completion in
+            completion("valid-enterprise-pass-1234")
+        }
+        SudoersSupport.verificationRunner = { _, _ in
+            return (0, "SleepDisabled 0")
+        }
+        Sudoers.install { ok in
+            installSuccessResult = ok
+            sema3.signal()
+        }
+        _ = sema3.wait(timeout: .now() + 3.0)
+        suite.expect(installSuccessResult == true,
+               "Sudoers.install returns true when password verifies successfully")
+        suite.expect(SudoersSupport.keychainPassword(services: [testService]) == "valid-enterprise-pass-1234",
+               "Sudoers.install retains verified password in keychain")
+
+        // Enterprise lifecycle: Sudoers.remove purges credential from Keychain
+        var removeResult: Bool?
+        let sema4 = DispatchSemaphore(value: 0)
+        Sudoers.remove { ok in
+            removeResult = ok
+            sema4.signal()
+        }
+        _ = sema4.wait(timeout: .now() + 3.0)
+        suite.expect(removeResult == true,
+               "Sudoers.remove succeeds")
+        suite.expect(SudoersSupport.keychainPassword(services: [testService]) == nil,
+               "Sudoers.remove purges elevation password from keychain")
+
+        SudoersSupport.primaryKeychainService = originalPrimary
+        SudoersSupport.keychainServices = originalServices
+        Sudoers.ruleFileDetector = originalDetector
         SudoersSupport.mockElevationPromptHandler = nil
+        SudoersSupport.verificationRunner = nil
+        SudoersSupport.deleteKeychainPassword(service: testService)
     }
 }

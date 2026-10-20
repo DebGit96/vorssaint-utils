@@ -156,14 +156,17 @@ enum Sudoers {
         }
     }
 
-    /// Whether any rule file (current or legacy name) is visible on disk.
-    /// Uninstall offers the removal prompt from this instead of `isConfigured`,
-    /// so a rule that stopped working still gets cleaned up.
+    static var ruleFileDetector: (() -> Bool)?
     static var ruleFilesPresent: Bool {
-        ([rulePath] + legacyRulePaths).contains { FileManager.default.fileExists(atPath: $0) }
+        ruleFileDetector?() ?? ([rulePath] + legacyRulePaths).contains { FileManager.default.fileExists(atPath: $0) }
     }
 
     static func install(completion: @escaping (Bool) -> Void) {
+        if isConfigured() {
+            completion(true)
+            return
+        }
+
         let finishWithCredentialPrompt: () -> Void = {
             SudoersSupport.promptForElevationPassword { password in
                 guard let password, !password.isEmpty else {
@@ -175,10 +178,9 @@ enum Sudoers {
                     if saved {
                         let report = Shell.run("/usr/bin/pmset", ["-g"])
                         let sleepDisabled = report.status == 0 && SudoersSupport.sleepDisabled(inPmsetOutput: report.output)
-                        let verifyResult = SudoersSupport.runViaPTY(
-                            command: ["/usr/bin/sudo", "/usr/bin/pmset", "disablesleep", sleepDisabled ? "1" : "0"],
-                            password: password
-                        )
+                        let cmd = ["/usr/bin/sudo", "/usr/bin/pmset", "disablesleep", sleepDisabled ? "1" : "0"]
+                        let verifyResult = SudoersSupport.verificationRunner?(cmd, password)
+                            ?? SudoersSupport.runViaPTY(command: cmd, password: password)
                         if verifyResult.status == 0 {
                             completion(true)
                             return
@@ -191,46 +193,25 @@ enum Sudoers {
             }
         }
 
-        // If rule files are already present on disk (or elevation credential missing on enterprise Mac),
-        // present the native in-app prompt directly without redundant AppleScript dialog.
-        if ruleFilesPresent && !isConfigured() && SudoersSupport.keychainPassword() == nil {
+        if SudoersSupport.keychainPassword() == nil {
             finishWithCredentialPrompt()
-            return
-        }
-
-        // Granted by uid, not username: a short name is free-form text on
-        // SSO-enrolled Macs (name@company.com, #915) and the old validation
-        // rejected it before the password prompt could even appear.
-        let rule = SudoersSupport.clamshellRule(uid: getuid())
-        // Clear any earlier-named rule first, then write and validate the new one
-        // (a failed check rolls back). Same password prompt either way.
-        let legacy = legacyRulePaths.joined(separator: " ")
-        let command = "mkdir -p /etc/sudoers.d && chmod 0755 /etc/sudoers.d && rm -f \(legacy) && echo '\(rule)' > \(rulePath) && chmod 0440 \(rulePath) && /usr/sbin/visudo -c -f \(rulePath) || { rm -f \(rulePath); exit 1; }"
-        AdminShell.run(command, prompt: L10n.shared.s.adminPromptSudoersInstall) { ok in
-            guard ok else {
-                completion(false)
-                return
-            }
-            if isConfigured() {
-                completion(true)
-                return
-            }
-            // Sudoers rule was written and validated by visudo, but non-interactive sudo -n
-            // was rejected (enterprise EPM PAM). Offer native in-app Keychain onboarding.
-            if SudoersSupport.keychainPassword() == nil {
-                finishWithCredentialPrompt()
-            } else {
-                completion(false)
-            }
+        } else {
+            // Existing keychain credential failed isConfigured(); clear it and re-prompt.
+            SudoersSupport.deleteKeychainPassword()
+            finishWithCredentialPrompt()
         }
     }
 
     static func remove(completion: @escaping (Bool) -> Void) {
+        SudoersSupport.deleteKeychainPassword()
+        guard ruleFilesPresent else {
+            completion(true)
+            return
+        }
         // Also removes the rules left behind by earlier app names.
         let all = ([rulePath] + legacyRulePaths).joined(separator: " ")
         AdminShell.run("rm -f \(all)",
                        prompt: L10n.shared.s.adminPromptSudoersRemove) { ok in
-            SudoersSupport.deleteKeychainPassword()
             completion(ok)
         }
     }

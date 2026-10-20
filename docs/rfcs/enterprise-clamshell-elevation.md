@@ -127,9 +127,9 @@ The fallback and native in-app onboarding flow have been tested on macOS 15 (App
 - All repository test suites pass without warnings:
   ```text
   ./build.sh --test-suite=keep-awake  -> 151 checks OK
-  ./build.sh --test-suite=preferences -> 128 checks OK
-  ./build.sh --test                   -> 112972 checks OK
-  ./build/VorssaintDeveloper --selftest -> SELFTEST OK
+  ./build.sh --test-suite=preferences -> 136 checks OK
+  ./build.sh --test                   -> 112980 checks OK
+  ./build/stage.noindex/Vorssaint\ \(Developer\).app/Contents/MacOS/VorssaintDeveloper --selftest -> SELFTEST OK
   ```
 
 ---
