@@ -1,11 +1,98 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Vorssaint
 
+import AppKit
 import Darwin
 import Foundation
 import Security
 
 enum SudoersSupport {
+    static var mockElevationPromptHandler: (((String?) -> Void) -> Void)?
+
+    /// Saves the elevation password to the macOS login keychain.
+    /// Uses SecItemAdd with a SecItemUpdate fallback when an entry for the account and service already exists.
+    @discardableResult
+    static func saveKeychainPassword(_ password: String,
+                                     service: String = "vorssaint-sudo",
+                                     account: String = NSUserName()) -> Bool {
+        guard let data = password.data(using: .utf8) else { return false }
+        let baseQuery: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account
+        ]
+        var addQuery = baseQuery
+        addQuery[kSecValueData as String] = data
+
+        let status = SecItemAdd(addQuery as CFDictionary, nil)
+        if status == errSecSuccess {
+            return true
+        } else if status == errSecDuplicateItem {
+            let updateAttributes: [String: Any] = [
+                kSecValueData as String: data
+            ]
+            let updateStatus = SecItemUpdate(baseQuery as CFDictionary, updateAttributes as CFDictionary)
+            return updateStatus == errSecSuccess
+        }
+        return false
+    }
+
+    /// Removes the elevation credential from the login keychain.
+    @discardableResult
+    static func deleteKeychainPassword(service: String = "vorssaint-sudo",
+                                       account: String = NSUserName()) -> Bool {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account
+        ]
+        let status = SecItemDelete(query as CFDictionary)
+        return status == errSecSuccess || status == errSecItemNotFound
+    }
+
+    /// Displays a native macOS in-app dialog prompting the user for their administrator elevation password
+    /// to store securely in their login Keychain, avoiding the need for manual Terminal commands.
+    static func promptForElevationPassword(completion: @escaping (String?) -> Void) {
+        if let mock = mockElevationPromptHandler {
+            if Thread.isMainThread {
+                mock(completion)
+            } else {
+                DispatchQueue.main.async { mock(completion) }
+            }
+            return
+        }
+
+        let present = {
+            NSApp.activate(ignoringOtherApps: true)
+            let alert = NSAlert()
+            alert.alertStyle = .informational
+            alert.messageText = "Enterprise Privilege Elevation"
+            alert.informativeText = "Closed-lid keep awake requires administrator privileges on managed Macs. Enter your administrator password to save it securely to your macOS Login Keychain so you won't have to enter it again."
+
+            let input = NSSecureTextField(frame: NSRect(x: 0, y: 0, width: 280, height: 24))
+            input.placeholderString = "Password"
+            alert.accessoryView = input
+
+            alert.addButton(withTitle: "Save & Enable")
+            alert.addButton(withTitle: "Cancel")
+
+            alert.window.initialFirstResponder = input
+
+            let response = alert.runModal()
+            if response == .alertFirstButtonReturn {
+                let text = input.stringValue.trimmingCharacters(in: .newlines)
+                completion(text.isEmpty ? nil : text)
+            } else {
+                completion(nil)
+            }
+        }
+
+        if Thread.isMainThread {
+            present()
+        } else {
+            DispatchQueue.main.async(execute: present)
+        }
+    }
     /// True when a `pmset -g` report lists lid sleep as disabled.
     static func sleepDisabled(inPmsetOutput output: String) -> Bool {
         output.range(of: #"SleepDisabled\s+1"#, options: .regularExpression) != nil

@@ -164,6 +164,40 @@ enum Sudoers {
     }
 
     static func install(completion: @escaping (Bool) -> Void) {
+        let finishWithCredentialPrompt: () -> Void = {
+            SudoersSupport.promptForElevationPassword { password in
+                guard let password, !password.isEmpty else {
+                    completion(false)
+                    return
+                }
+                DispatchQueue.global(qos: .userInitiated).async {
+                    let saved = SudoersSupport.saveKeychainPassword(password)
+                    if saved {
+                        let report = Shell.run("/usr/bin/pmset", ["-g"])
+                        let sleepDisabled = report.status == 0 && SudoersSupport.sleepDisabled(inPmsetOutput: report.output)
+                        let verifyResult = SudoersSupport.runViaPTY(
+                            command: ["/usr/bin/sudo", "/usr/bin/pmset", "disablesleep", sleepDisabled ? "1" : "0"],
+                            password: password
+                        )
+                        if verifyResult.status == 0 {
+                            completion(true)
+                            return
+                        } else {
+                            SudoersSupport.deleteKeychainPassword()
+                        }
+                    }
+                    completion(false)
+                }
+            }
+        }
+
+        // If rule files are already present on disk (or elevation credential missing on enterprise Mac),
+        // present the native in-app prompt directly without redundant AppleScript dialog.
+        if ruleFilesPresent && !isConfigured() && SudoersSupport.keychainPassword() == nil {
+            finishWithCredentialPrompt()
+            return
+        }
+
         // Granted by uid, not username: a short name is free-form text on
         // SSO-enrolled Macs (name@company.com, #915) and the old validation
         // rejected it before the password prompt could even appear.
@@ -173,7 +207,21 @@ enum Sudoers {
         let legacy = legacyRulePaths.joined(separator: " ")
         let command = "mkdir -p /etc/sudoers.d && chmod 0755 /etc/sudoers.d && rm -f \(legacy) && echo '\(rule)' > \(rulePath) && chmod 0440 \(rulePath) && /usr/sbin/visudo -c -f \(rulePath) || { rm -f \(rulePath); exit 1; }"
         AdminShell.run(command, prompt: L10n.shared.s.adminPromptSudoersInstall) { ok in
-            completion(ok && isConfigured())
+            guard ok else {
+                completion(false)
+                return
+            }
+            if isConfigured() {
+                completion(true)
+                return
+            }
+            // Sudoers rule was written and validated by visudo, but non-interactive sudo -n
+            // was rejected (enterprise EPM PAM). Offer native in-app Keychain onboarding.
+            if SudoersSupport.keychainPassword() == nil {
+                finishWithCredentialPrompt()
+            } else {
+                completion(false)
+            }
         }
     }
 
@@ -182,6 +230,7 @@ enum Sudoers {
         let all = ([rulePath] + legacyRulePaths).joined(separator: " ")
         AdminShell.run("rm -f \(all)",
                        prompt: L10n.shared.s.adminPromptSudoersRemove) { ok in
+            SudoersSupport.deleteKeychainPassword()
             completion(ok)
         }
     }
