@@ -8,14 +8,16 @@ import Security
 
 enum SudoersSupport {
     static var mockElevationPromptHandler: (((String?) -> Void) -> Void)?
+    static var verificationRunner: (([String], String) -> (status: Int32, output: String))?
+    static var primaryKeychainService = "vorssaint-sudo"
 
     /// Saves the elevation password to the macOS login keychain.
     /// Uses SecItemAdd with a SecItemUpdate fallback when an entry for the account and service already exists.
     @discardableResult
     static func saveKeychainPassword(_ password: String,
-                                     service: String = "vorssaint-sudo",
+                                     service: String = primaryKeychainService,
                                      account: String = NSUserName()) -> Bool {
-        guard let data = password.data(using: .utf8) else { return false }
+        guard !password.isEmpty, let data = password.data(using: .utf8) else { return false }
         let baseQuery: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
@@ -39,7 +41,7 @@ enum SudoersSupport {
 
     /// Removes the elevation credential from the login keychain.
     @discardableResult
-    static func deleteKeychainPassword(service: String = "vorssaint-sudo",
+    static func deleteKeychainPassword(service: String = primaryKeychainService,
                                        account: String = NSUserName()) -> Bool {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
@@ -108,7 +110,7 @@ enum SudoersSupport {
     }
 
     /// Known Keychain generic password service names for elevation credentials.
-    static let keychainServices = ["vorssaint-sudo", "keepawake-sudo"]
+    static var keychainServices = ["vorssaint-sudo", "keepawake-sudo"]
 
     /// Fetches the elevation password from the login keychain if configured.
     /// Tries the specified account first, then falls back to searching by service name alone.
