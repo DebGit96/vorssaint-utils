@@ -98,24 +98,37 @@ This approach was prototyped and proven in the standalone `keepawake-cli` utilit
 - **Pure fallback**: Only triggers if `sudo -n` fails; zero effect on standard consumer machines.
 - **Zero external dependencies**: Implemented using pure Darwin APIs (`forkpty`, `poll`, `read`, `write`, `fcntl`) and `Security.framework` (`SecItemCopyMatching`).
 
-#### User Setup
-Users on enterprise machines store their elevation credential once in their login keychain:
-```sh
-security add-generic-password -a "$USER" -s vorssaint-sudo -w -U
-```
+#### User Onboarding & Setup
+
+Vorssaint supports two onboarding paths for enterprise credentials:
+
+1. **Native In-App GUI Prompt (Primary)**:
+   - When the user toggles closed-lid keep-awake ON and `sudo -n` is blocked (or no valid credential exists), Vorssaint presents a native AppKit modal dialog (`NSAlert` with `NSSecureTextField`).
+   - The dialog informs the user that enterprise privilege elevation is required on managed Macs and will be saved securely to their macOS Login Keychain so they don't have to enter it again.
+   - Buttons: **Save & Enable** and **Cancel**.
+   - Upon clicking "Save & Enable", Vorssaint stores the password using `SecItemAdd` (with automatic `SecItemUpdate` fallback on existing items), verifies execution in a background Darwin PTY runner (`runViaPTY`), and keeps the toggle ON.
+   - If canceled or if verification fails, the toggle cleanly reverts to OFF with zero terminal interaction required.
+
+2. **Manual Terminal Provisioning (Optional / Headless)**:
+   - Users or MDM administrators can also pre-seed or manage the login Keychain item via standard CLI:
+     ```sh
+     security add-generic-password -a "$USER" -s vorssaint-sudo -w -U
+     ```
 
 ---
 
 ## 4. Prototype Validation & Evidence
 
-The fallback has been prototyped and tested on macOS 15 (Apple Silicon) on an enterprise-managed machine with CyberArk EPM:
+The fallback and native in-app onboarding flow have been tested on macOS 15 (Apple Silicon) in an enterprise-managed machine with CyberArk EPM and ServiceNow Elevate PAM:
 - Prior to fallback: `sudo -n /usr/bin/pmset -g` exits with code 1 (`sudo: a password is required`), preventing clamshell mode from activating.
 - With Keychain PTY runner: `/usr/bin/sudo /usr/bin/pmset disablesleep 1` exits with code 0; `pmset -g` confirms `SleepDisabled 1`.
 - Restoring sleep: `/usr/bin/sudo /usr/bin/pmset disablesleep 0` exits with code 0; `pmset -g` confirms `SleepDisabled 0`.
+- Native In-App GUI prompt: Seamlessly saves and updates credentials via `saveKeychainPassword` with duplicate handling, verifies elevation, and cleanly reverts on cancellation.
 - All repository test suites pass without warnings:
   ```text
   ./build.sh --test-suite=keep-awake  -> 151 checks OK
-  ./build.sh --test-suite=preferences -> 119 checks OK
+  ./build.sh --test-suite=preferences -> 128 checks OK
+  ./build.sh --test                   -> 112972 checks OK
   ./build/VorssaintDeveloper --selftest -> SELFTEST OK
   ```
 
@@ -124,5 +137,5 @@ The fallback has been prototyped and tested on macOS 15 (Apple Silicon) on an en
 ## 5. Questions for Maintainers
 
 1. **Direction**: Would maintainers prefer migrating privileged tasks to an expanded `SMAppService.daemon` (alongside or combined with `fan-control-helper`), or does a zero-daemon Keychain PTY fallback provide an ideal, minimally invasive bridge for enterprise users?
-2. **Settings Guidance**: If the Keychain fallback is accepted, should Settings > Energy display a small hint or helper button when `sudoersFailed` occurs on an enterprise Mac (e.g. suggesting adding the Keychain item)?
-3. **Scope**: Should this be split into an immediate PR for the PTY fallback, followed by a separate PR for the long-term `SMAppService` power daemon?
+2. **Settings Guidance**: With native in-app onboarding implemented, users are automatically prompted upon toggling clamshell keep-awake; no manual terminal setup is necessary.
+3. **Scope**: Should this be split into an immediate PR for the PTY fallback and in-app prompt, followed by a separate PR for the long-term `SMAppService` power daemon?

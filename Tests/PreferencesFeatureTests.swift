@@ -430,5 +430,61 @@ enum PreferencesFeatureTests {
         let rejectDuration = Date().timeIntervalSince(rejectStart)
         suite.expect(rejectDuration < 3.0,
                "PTY runner aborts promptly upon authentication rejection banner")
+
+        // Enterprise fallback: saveKeychainPassword stores credential in login Keychain via SecItemAdd
+        let testService = "vorssaint-test-kc-\(UUID().uuidString)"
+        let testAccount = "test-user-\(UUID().uuidString)"
+        let initialLookup = SudoersSupport.keychainPassword(services: [testService], account: testAccount)
+        suite.expect(initialLookup == nil,
+               "keychain password lookup returns nil for unused test service")
+
+        let saved = SudoersSupport.saveKeychainPassword("test-secret-1234", service: testService, account: testAccount)
+        suite.expect(saved,
+               "saveKeychainPassword succeeds using SecItemAdd")
+
+        let queried = SudoersSupport.keychainPassword(services: [testService], account: testAccount)
+        suite.expect(queried == "test-secret-1234",
+               "keychainPassword successfully queries saved credential")
+
+        // Enterprise fallback: duplicate update fallback via SecItemUpdate
+        let updated = SudoersSupport.saveKeychainPassword("test-secret-5678", service: testService, account: testAccount)
+        suite.expect(updated,
+               "saveKeychainPassword succeeds on duplicate item using SecItemUpdate")
+
+        let queriedUpdated = SudoersSupport.keychainPassword(services: [testService], account: testAccount)
+        suite.expect(queriedUpdated == "test-secret-5678",
+               "keychainPassword retrieves updated credential after duplicate save")
+
+        // Enterprise fallback: deletion via deleteKeychainPassword
+        let deleted = SudoersSupport.deleteKeychainPassword(service: testService, account: testAccount)
+        suite.expect(deleted,
+               "deleteKeychainPassword removes item from keychain")
+
+        let queriedAfterDelete = SudoersSupport.keychainPassword(services: [testService], account: testAccount)
+        suite.expect(queriedAfterDelete == nil,
+               "keychainPassword returns nil after credential deletion")
+
+        // Enterprise fallback: promptForElevationPassword delivers entered password via completion
+        var promptResult: String?
+        SudoersSupport.mockElevationPromptHandler = { completion in
+            completion("mocked-pass")
+        }
+        SudoersSupport.promptForElevationPassword { pw in
+            promptResult = pw
+        }
+        suite.expect(promptResult == "mocked-pass",
+               "promptForElevationPassword delivers entered password via completion")
+
+        // Enterprise fallback: promptForElevationPassword delivers nil when user cancels
+        SudoersSupport.mockElevationPromptHandler = { completion in
+            completion(nil)
+        }
+        var cancelResult: String? = "preset"
+        SudoersSupport.promptForElevationPassword { pw in
+            cancelResult = pw
+        }
+        suite.expect(cancelResult == nil,
+               "promptForElevationPassword delivers nil when user cancels")
+        SudoersSupport.mockElevationPromptHandler = nil
     }
 }
