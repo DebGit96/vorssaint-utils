@@ -184,6 +184,11 @@ final class StatusItemController {
             .sink { [weak self] _ in self?.updateIconAppearance() }
             .store(in: &cancellables)
 
+        KeepAwakeManager.shared.$clamshellActive
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.updateIconAppearance() }
+            .store(in: &cancellables)
+
         KeepAwakeManager.shared.$endDate
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in self?.refresh() }
@@ -385,6 +390,7 @@ final class StatusItemController {
                 mustShowForSignal: signal || keepAwakeSignal)
         mainItemHiddenByChoice = mainItemHidden
         let keepAwakeActive = KeepAwakeManager.shared.isActive
+        let clamshellActive = KeepAwakeManager.shared.clamshellActive
 
         // refresh() runs on every monitor tick and lands here; re-rendering
         // the same image every 2 seconds would be wasted composition, so the
@@ -392,7 +398,7 @@ final class StatusItemController {
         let stateKey = [String(hidden), String(mainItemHidden), String(updateAvailable),
                         String(keepAwakeActive), KeepAwakeIconTint.current.rawValue,
                         KeepAwakeActiveIcon.current.rawValue, BlackHoleGlyph.chosenSymbolName,
-                        String(micBadgeActive)].joined(separator: "|")
+                        String(micBadgeActive), String(clamshellActive)].joined(separator: "|")
         guard stateKey != lastIconStateKey else { return }
         lastIconStateKey = stateKey
 
@@ -404,11 +410,14 @@ final class StatusItemController {
             button.image = Self.emptyStatusImage
             return
         }
-        let stateImage: NSImage?
+        var stateImage: NSImage?
         if updateAvailable {
             stateImage = BlackHoleGlyph.attentionImage()
         } else {
             stateImage = BlackHoleGlyph.image(active: keepAwakeActive)
+        }
+        if clamshellActive {
+            stateImage = BlackHoleGlyph.clamshellBadgedImage(over: stateImage) ?? stateImage
         }
         if micBadgeActive {
             button.image = BlackHoleGlyph.micMutedImage(over: stateImage) ?? stateImage
@@ -1025,6 +1034,40 @@ enum BlackHoleGlyph {
     static func attentionImage() -> NSImage? {
         guard let glyph = mark() else { return fallback(active: true) }
         return tintedImage(glyph, color: .systemBlue) ?? fallback(active: true)
+    }
+
+    /// The given state image with a laptop symbol beside it, shown
+    /// while clamshell mode is active. Drawn against the destination
+    /// appearance, which keeps template glyphs and badges legible on both
+    /// light and dark menu bars.
+    static func clamshellBadgedImage(over underlying: NSImage?) -> NSImage? {
+        guard let underlying else { return nil }
+        guard let badge = NSImage(systemSymbolName: "laptopcomputer",
+                                  accessibilityDescription: nil)?
+            .withSymbolConfiguration(.init(pointSize: 11, weight: .semibold)) else { return nil }
+        let gap: CGFloat = 2
+        let badgeSize = badge.size
+        let height = max(underlying.size.height, badgeSize.height)
+        let size = NSSize(width: underlying.size.width + gap + badgeSize.width, height: height)
+        let composed = NSImage(size: size, flipped: false) { _ in
+            let glyphRect = NSRect(x: 0, y: (height - underlying.size.height) / 2,
+                                   width: underlying.size.width, height: underlying.size.height)
+            underlying.draw(in: glyphRect, from: .zero, operation: .sourceOver, fraction: 1)
+            if underlying.isTemplate {
+                // Template pixels carry no usable color of their own.
+                NSColor.labelColor.setFill()
+                glyphRect.fill(using: .sourceAtop)
+            }
+            let badgeRect = NSRect(x: underlying.size.width + gap,
+                                   y: (height - badgeSize.height) / 2,
+                                   width: badgeSize.width, height: badgeSize.height)
+            badge.draw(in: badgeRect, from: .zero, operation: .sourceOver, fraction: 1)
+            NSColor.labelColor.setFill()
+            badgeRect.fill(using: .sourceAtop)
+            return true
+        }
+        composed.isTemplate = false
+        return composed
     }
 
     /// The given state image with a red slashed microphone beside it, shown

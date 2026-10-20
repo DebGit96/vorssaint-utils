@@ -7,31 +7,44 @@ All notable changes to this project are documented here. The format follows
 ## [Unreleased]
 
 ### Summary
-Clipboard history that can expire old items and a hidden Dynamic Island that still shows activity, plus steadier scrolling, AirPlay, displays and battery updates, and many fixes.
+Clipboard history that can expire old items and a hidden Dynamic Island that still shows activity, plus fixes for AirPlay, displays, battery updates and more.
+
+### Highlights
+- **A hidden island that still shows activity.** Dynamic Island set to Hidden until hover can come into view for activities, indicators and notifications, then hide again. Settings → Dynamic Island → Behavior → Opening → Show activity and indicators.
+- **Clipboard history that expires.** Items can be removed after a set number of days, while pinned items stay. Settings → Clipboard → Keep items for.
+- **⌘Tab under secure input.** When the window switcher replaces macOS ⌘Tab, the shortcut no longer goes dead while another app has secure input on, as password fields do.
 
 ### Added
 - Clipboard history can remove items after a set number of days, while pinned items stay. Settings → Clipboard → Keep items for.
-- Dynamic Island set to Hidden until hover can still come into view for activities and indicators, then hide again. Settings → Dynamic Island → Behavior → Opening → Show activity and indicators.
+- Dynamic Island set to Hidden until hover can still come into view for activities, indicators and notifications, then hide again. Settings → Dynamic Island → Behavior → Opening → Show activity and indicators.
+
+### Changed
+- Dynamic Island closes when a file or link is dragged out of its Shelf, so it no longer covers browser tabs or other places to drop it. A pinned island stays open.
 
 ### Fixed
 - Dynamic Island's Now Playing page shows the Explore button again when Explore is not a floating button, and can grow a little to fit it while a song plays. The System page shows it too where it had no top row, such as on displays without a notch.
-- Smooth scrolling keeps its remaining motion in the original window or scroll area when the pointer moves. New wheel input elsewhere starts there immediately.
 - Dock Preview avoids waiting on a frozen neighboring app when hovering the uncovered Dock.
-- Mirrored displays remain listed with their own brightness controls, including the built-in screen.
-- Battery status updates promptly when connecting or disconnecting power, including when background monitoring uses a longer interval.
+- Mirrored displays stay listed with their own display brightness controls and power button, including the built-in screen.
+- Battery readings update promptly when connecting or disconnecting power, including when background monitoring uses a longer interval.
 - Screen capture's dimmed overlay keeps covering the display when switching between screenshot, recording and color picker.
 - Volume mixer controls show their own tooltips, with the reorder hint kept on each app's icon and name.
 - Command Bar keeps meaningful digits in large calculator results and reused expressions while still hiding small rounding noise.
-- App lists in Settings show names without ".app" when the Finder shows all filename extensions.
+- App names in the Settings window, clipboard history and Dynamic Island's player no longer end in ".app" when the Finder shows all filename extensions.
 - The volume mixer's AirPlay stream pauses once routed apps go quiet, so iPhones and HomePods stop showing the Mac as playing, and sound comes back after pausing from the phone.
 - Command Bar copies a script's output and closes when the script row was reached by part of its name or opened from its shortcut.
-- Settings says when the chosen display keeps Dynamic Island off displays without a notch, such as a monitor beside a MacBook, and offers All displays. Settings → Dynamic Island → Behavior → Display.
+- Settings says when the chosen display keeps Dynamic Island off displays without a notch, such as a monitor beside a MacBook, and offers All displays. Settings → Dynamic Island → Layout → Displays without a notch.
 - Focus follows mouse keeps Chrome's address bar suggestions and other pop-ups open when the pointer moves between them and their window.
 - App Switcher, Dock Preview and Watch pause window captures while macOS is slow to check the app's permission to see the screen, which could log you out under heavy load. Thumbnails also stop updating while the displays sleep or the screen is locked.
-- App Updates stops showing false updates for Private Internet Access, and lists apps it can't compare, such as Unified Remote and Android Studio, under Versions not compared.
+- App Updates stops showing false updates for apps numbered differently in the public catalog, such as Private Internet Access, Sonos, Sublime Text and Positron, and lists apps it can't compare, such as Unified Remote and Android Studio, under Versions not compared.
+- A custom Dynamic Island width applies to Controls, Now Playing and Timer again, and the Layout preview shows the island at the size it opens. Settings → Dynamic Island → Layout → Size.
+- On a display without a notch, Dynamic Island hidden by Hide content in full screen opens on hover, not only with its shortcut.
+- A timed screenshot preview on Dynamic Island set to Hidden until hover closes on its own again while the mouse moves.
+- When the window switcher replaces macOS ⌘Tab, the shortcut no longer goes dead while another app has secure input on, as password fields do. macOS's switcher answers until it turns off, and Window switcher settings say why.
+- Text Snippets and Command Bar settings no longer claim to know which app holds secure input. They name the app that was active when it turned on, never Vorssaint itself.
+- Quit Protection in Screen Sharing and other remote desktop or virtual machine apps passes a ⌘Q confirmed by holding it or pressing it twice on to the other computer instead of quitting the app itself.
 
 ### Contributors
-Thanks to @andrewgribben, @bebricoOOOOOOf, @becastellani, @bharathvbcr, @cdbrandt729-code, @Chubi01, @Dusk-afk, @emreertunc, @iltonandrew, @jainnam-1993, @juanra, @Likheet, @marianhoenscheid, @mendozal, @mikeknight85, @mmoradi97, @mschoeffmann, @pedro-fontinele, @RKeyProg, @rohanod, @root-daemon, @StudioKeys and @webipsum.
+Thanks to @andrewgribben, @becastellani, @bharathvbcr, @cdbrandt729-code, @Chubi01, @Dusk-afk, @emreertunc, @iltonandrew, @jainnam-1993, @juanra, @Likheet, @marianhoenscheid, @mendozal, @mikeknight85, @mmoradi97, @mschoeffmann, @pedro-fontinele, @RKeyProg, @rohanod, @root-daemon, @StudioKeys, @suhrudsh, @webipsum and @Yahddyyp.
 Feedback: Brain.
 
 ## [3.4.2-beta.1] - 2026-10-18

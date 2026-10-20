@@ -2799,7 +2799,7 @@ struct KeepAwakeCard: View {
 
                 optionRow(title: l10n.s.clamshellTitle,
                           caption: clamshellCaption,
-                          isOn: $awake.clamshellPreferred,
+                          isOn: clamshellBinding,
                           disabled: awake.clamshellSetupInProgress,
                           captionIsError: awake.clamshellSetupFailed)
             }
@@ -3128,6 +3128,18 @@ struct KeepAwakeCard: View {
             return l10n.s.clamshellNeedsSession
         }
         return awake.passwordlessClamshell ? l10n.s.clamshellReady : l10n.s.clamshellNeedsPassword
+    }
+
+    private var clamshellBinding: Binding<Bool> {
+        Binding(
+            get: { awake.clamshellPreferred },
+            set: { on in
+                awake.clamshellPreferred = on
+                if on, !awake.isActive {
+                    awake.startLastPick()
+                }
+            }
+        )
     }
 
     private var activeBinding: Binding<Bool> {

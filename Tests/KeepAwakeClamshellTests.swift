@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Vorssaint
 
+import AppKit
 import Foundation
 
 extension KeepAwakeLidSleepContract {
@@ -171,6 +172,109 @@ enum KeepAwakeClamshellTests {
         prefs.standard.integers = [:]
         prefs.standard.set(false, forKey: Key.keepAwakeSwitchUsesUntil)
         prefs.standard.removeObject(forKey: Key.keepAwakeUntilTime)
+
+        // Clamshell toggle auto-activation:
+        // In the Menu Panel and Quick Launcher, toggling clamshellPreferred ON
+        // auto-activates an inactive session using startLastPick().
+        let autoPick = C.reset()
+        autoPick.activate(minutes: 15)
+        autoPick.deactivate(reason: .manual); C.drain()
+        expect(!autoPick.isActive, "session is initially inactive before toggle")
+
+        func toggleClamshell(_ service: C.Service, on: Bool) {
+            service.clamshellPreferred = on
+            if on, !service.isActive {
+                service.startLastPick()
+            }
+        }
+
+        toggleClamshell(autoPick, on: true)
+        expect(autoPick.clamshellPreferred && autoPick.isActive && autoPick.sessionMinutes == 15,
+               "toggling clamshell ON while inactive immediately auto-activates the last picked session")
+
+        autoPick.activate(minutes: 60)
+        toggleClamshell(autoPick, on: true)
+        expect(autoPick.isActive && autoPick.sessionMinutes == 60,
+               "toggling clamshell ON while already active preserves the current session")
+
+        toggleClamshell(autoPick, on: false)
+        expect(!autoPick.clamshellPreferred && autoPick.isActive && autoPick.sessionMinutes == 60,
+               "toggling clamshell OFF while active does not interrupt the running session")
+
+        autoPick.deactivate(reason: .manual); C.drain()
+        toggleClamshell(autoPick, on: false)
+        expect(!autoPick.clamshellPreferred && !autoPick.isActive,
+               "toggling clamshell OFF while inactive leaves session inactive")
+
+        // Auto-activation when the last pick was an until end time:
+        let untilAutoPick = C.reset()
+        let futureEnd = Date().addingTimeInterval(7200)
+        untilAutoPick.activate(until: futureEnd)
+        untilAutoPick.deactivate(reason: .manual); C.drain()
+        expect(!untilAutoPick.isActive, "untilAutoPick is inactive before toggle")
+        toggleClamshell(untilAutoPick, on: true)
+        expect(untilAutoPick.clamshellPreferred && untilAutoPick.isActive && untilAutoPick.endDate == futureEnd,
+               "toggling clamshell ON restores a valid until end-time session")
+        untilAutoPick.deactivate(reason: .manual); C.drain()
+        prefs.standard.set(false, forKey: Key.keepAwakeSwitchUsesUntil)
+        prefs.standard.removeObject(forKey: Key.keepAwakeUntilTime)
+
+        // Contract checks for menu bar badge and binding architecture:
+        let statusControllerSource = (try? String(
+            contentsOfFile: "Sources/Vorssaint/App/StatusItemController.swift",
+            encoding: .utf8)) ?? ""
+        expect(statusControllerSource.contains("String(clamshellActive)")
+               || statusControllerSource.contains("String(KeepAwakeManager.shared.clamshellActive)"),
+               "StatusItemController invalidates its icon stateKey when clamshellActive changes")
+        expect(statusControllerSource.contains("KeepAwakeManager.shared.$clamshellActive"),
+               "StatusItemController subscribes to clamshellActive publisher")
+        expect(statusControllerSource.contains("func clamshellBadgedImage(over underlying: NSImage?) -> NSImage?"),
+               "BlackHoleGlyph defines clamshellBadgedImage(over:)")
+        expect(statusControllerSource.contains("laptopcomputer"),
+               "clamshellBadgedImage uses the laptopcomputer symbol")
+
+        let menuPanelSource = (try? String(
+            contentsOfFile: "Sources/Vorssaint/UI/MenuPanel/MenuPanelView.swift",
+            encoding: .utf8)) ?? ""
+        expect(menuPanelSource.contains("awake.clamshellPreferred = on")
+               && menuPanelSource.contains("awake.startLastPick()")
+               && menuPanelSource.contains("isOn: clamshellBinding"),
+               "MenuPanelView optionRow uses clamshellBinding to auto-activate inactive sessions")
+
+        let quickLauncherSource = (try? String(
+            contentsOfFile: "Sources/Vorssaint/UI/QuickLauncher/QuickLauncherView.swift",
+            encoding: .utf8)) ?? ""
+        expect(quickLauncherSource.contains("keepAwake.clamshellPreferred = on")
+               && quickLauncherSource.contains("keepAwake.startLastPick()")
+               && quickLauncherSource.contains("isOn: clamshellBinding"),
+               "QuickLauncherView toggle uses clamshellBinding to auto-activate inactive sessions")
+
+        // Visual badge geometry validation:
+        let laptopSymbol = NSImage(systemSymbolName: "laptopcomputer", accessibilityDescription: nil)?
+            .withSymbolConfiguration(.init(pointSize: 11, weight: .semibold))
+        expect(laptopSymbol != nil, "laptopcomputer symbol resolves on system")
+        if let laptopSymbol {
+            let baseSize = NSSize(width: 26, height: 20)
+            let gap: CGFloat = 2
+            let expectedWidth = baseSize.width + gap + laptopSymbol.size.width
+            let expectedHeight = max(baseSize.height, laptopSymbol.size.height)
+            expect(laptopSymbol.size.width > 0 && laptopSymbol.size.height > 0,
+                   "laptopcomputer symbol resolves with non-zero dimensions")
+            expect(expectedWidth > baseSize.width && expectedHeight == 20,
+                   "clamshell badged image dimensions match expected layout bounds")
+        }
+
+        let micSymbol = NSImage(systemSymbolName: "mic.slash.fill", accessibilityDescription: nil)?
+            .withSymbolConfiguration(.init(pointSize: 12, weight: .semibold))
+        expect(micSymbol != nil, "mic.slash.fill symbol resolves on system")
+        if let laptopSymbol, let micSymbol {
+            let baseSize = NSSize(width: 26, height: 20)
+            let gap: CGFloat = 2
+            let compositeWidth = baseSize.width + gap + laptopSymbol.size.width + gap + micSymbol.size.width
+            let compositeHeight = max(baseSize.height, max(laptopSymbol.size.height, micSymbol.size.height))
+            expect(compositeWidth > baseSize.width + laptopSymbol.size.width && compositeHeight == 20,
+                   "composite clamshell and mic mute badges fit within menu bar vertical bounds")
+        }
 
         let staleStatus = C.reset(); staleStatus.isActive = true
         staleStatus.refreshPasswordlessStatus()

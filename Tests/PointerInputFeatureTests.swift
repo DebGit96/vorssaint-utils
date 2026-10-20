@@ -795,19 +795,6 @@ enum PointerInputFeatureTests {
         smoothEngine.add(vertical: 40, horizontal: 0)
         suite.expect(smoothEngine.remainingVertical == 40,
                "one wheel tick queues one step of glide")
-        var scrollTarget = SmoothScrollSupport.TargetLatch()
-        let firstScrollTarget = SmoothScrollSupport.Target(
-            point: CGPoint(x: 120, y: 240), processID: 41, windowNumber: 100)
-        let nextScrollTarget = SmoothScrollSupport.Target(
-            point: CGPoint(x: 900, y: 600), processID: 42, windowNumber: 200)
-        suite.expect(scrollTarget.update(firstScrollTarget)
-                && !scrollTarget.update(firstScrollTarget) && scrollTarget.target == firstScrollTarget,
-               "wheel input at the same target can extend the existing glide")
-        suite.expect(scrollTarget.update(nextScrollTarget) && scrollTarget.target == nextScrollTarget,
-               "fresh wheel input elsewhere replaces the old glide target immediately")
-        scrollTarget.reset()
-        suite.expect(scrollTarget.target == nil,
-               "a finished or cancelled glide releases its target")
         smoothEngine.add(vertical: 80, horizontal: 20)
         suite.expect(smoothEngine.remainingVertical == 120 && smoothEngine.remainingHorizontal == 20,
                "same-direction input adds to what is left on each axis")
@@ -3971,6 +3958,30 @@ enum PointerInputFeatureTests {
         suite.expect(QuitProtectionSupport.usesNativeQuitRequest(
                     for: .quit, bundleIdentifier: "com.example.editor"),
                "an ordinary app continues using native terminate requests")
+        suite.expect(!QuitProtectionSupport.usesNativeQuitRequest(
+                    for: .quit, bundleIdentifier: "com.apple.ScreenSharing")
+                && !QuitProtectionSupport.usesNativeQuitRequest(
+                    for: .quit, bundleIdentifier: "com.vmware.fusion"),
+               "a remote screen or virtual machine gets the confirmed shortcut to pass on instead of quitting itself")
+        suite.expect(QuitProtectionSupport.usesNativeQuitRequest(
+                    for: .quit, bundleIdentifier: "com.apple.ScreenSharing",
+                    confirmedWithExtraModifier: true),
+               "a remote screen confirmed with the extra modifier still held quits itself instead of forwarding that modifier")
+        let quitProtectionServiceSource = (try? String(
+            contentsOfFile: "Sources/Vorssaint/Services/QuitProtection/QuitProtectionService.swift",
+            encoding: .utf8)) ?? ""
+        suite.expect(quitProtectionServiceSource.contains("confirmedWithExtraModifier: modifier != nil"),
+               "the confirmation tells the forwarding rule whether the extra modifier is still held")
+        suite.expect(!QuitProtectionSupport.usesNativeQuitRequest(
+                    for: .quit, bundleIdentifier: "com.valvesoftware.steam",
+                    confirmedWithExtraModifier: true)
+                && QuitProtectionSupport.usesNativeQuitRequest(
+                    for: .quit, bundleIdentifier: "com.example.editor",
+                    confirmedWithExtraModifier: true),
+               "an extra modifier leaves Steam and ordinary apps on their usual path")
+        suite.expect(!QuitProtectionSupport.usesNativeQuitRequest(
+                    for: .close, bundleIdentifier: "com.apple.ScreenSharing"),
+               "close stays a window shortcut in a remote screen")
 
         suite.expect(QuitProtectionSupport.scopeAllows(.all, bundleIdentifier: nil, exceptions: []),
                "all-app scope protects even an app without a bundle identifier")
