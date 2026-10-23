@@ -2568,6 +2568,43 @@ enum ScreenshotSupport {
         return (clamped * min(imageSize.width, imageSize.height) * 0.2).rounded()
     }
 
+    /// The rounding a picture already carries in its alpha, such as a window
+    /// captured with its own corners, in image pixels: how far transparency
+    /// reaches in along each corner's diagonal, read as the radius of the arc
+    /// that meets the diagonal there. The least rounded corner wins, so a
+    /// mark drawn into one corner cannot round the card past the picture. An
+    /// opaque picture reads 0.
+    static func transparentCornerRadius(of image: CGImage) -> CGFloat {
+        let side = min(image.width, image.height, 512) / 2
+        guard side >= 2 else { return 0 }
+        let corners = [(x: 0, y: 0, stepX: 1, stepY: 1),
+                       (x: image.width - side, y: 0, stepX: -1, stepY: 1),
+                       (x: 0, y: image.height - side, stepX: 1, stepY: -1),
+                       (x: image.width - side, y: image.height - side, stepX: -1, stepY: -1)]
+        var reach = Int.max
+        for corner in corners {
+            guard let crop = image.cropping(to: CGRect(x: corner.x, y: corner.y, width: side, height: side)),
+                  let context = CGContext(data: nil, width: side, height: side,
+                                          bitsPerComponent: 8, bytesPerRow: side * 4,
+                                          space: CGColorSpaceCreateDeviceRGB(),
+                                          bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue),
+                  let pixels = context.data
+            else { return 0 }
+            context.draw(crop, in: CGRect(x: 0, y: 0, width: side, height: side))
+            // Rows run top down in the buffer, as in the picture.
+            let startX = corner.stepX > 0 ? 0 : side - 1
+            let startY = corner.stepY > 0 ? 0 : side - 1
+            guard let opaqueAt = (0..<side).first(where: { step in
+                let x = startX + step * corner.stepX
+                let y = startY + step * corner.stepY
+                return pixels.load(fromByteOffset: (y * side + x) * 4 + 3, as: UInt8.self) > 127
+            }) else { return 0 }
+            reach = min(reach, opaqueAt)
+        }
+        // The arc crosses the diagonal at r · (1 − 1/√2) from the corner.
+        return (CGFloat(reach) / (1 - 1 / 2.0.squareRoot())).rounded()
+    }
+
     /// Gaussian blur radius in output pixels. Keeping it proportional makes
     /// the same slider look consistent on small screenshots and 4K video.
     static func backdropBlurRadius(for size: CGSize, factor: CGFloat) -> CGFloat {

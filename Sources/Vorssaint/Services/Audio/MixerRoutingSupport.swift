@@ -498,7 +498,16 @@ enum MixerRoutingSupport {
 
     static func outputLooksLikeHeadphones(name: String,
                                           uid: String,
-                                          dataSourceName: String?) -> Bool {
+                                          dataSourceName: String?,
+                                          terminalTypes: [UInt32] = []) -> Bool {
+        // Stream terminals describe the hardware independently of its model
+        // or user-assigned name. Generic or unavailable terminals still need
+        // the existing name/data-source recognition.
+        if terminalTypes.contains(kAudioStreamTerminalTypeHeadphones) { return true }
+        if terminalTypes.contains(where: {
+            $0 == kAudioStreamTerminalTypeSpeaker || $0 == kAudioStreamTerminalTypeLFESpeaker
+                || $0 == kAudioStreamTerminalTypeReceiverSpeaker
+        }) { return false }
         let haystack = [name, uid, dataSourceName ?? ""]
             .joined(separator: " ")
             .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil)

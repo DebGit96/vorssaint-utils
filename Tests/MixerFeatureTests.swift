@@ -274,6 +274,33 @@ enum MixerFeatureTests {
                                                               uid: "",
                                                               dataSourceName: nil),
                "Bluetooth speakers are not treated as headphones")
+        for name in ["HUAWEI FreeClip 2", "My renamed audio device", ""] {
+            suite.expect(MixerRoutingSupport.outputLooksLikeHeadphones(
+                name: name, uid: "output", dataSourceName: nil,
+                terminalTypes: [kAudioStreamTerminalTypeHeadphones]),
+                "a headphone terminal identifies the output independently of its name: \(name)")
+        }
+        suite.expect(MixerRoutingSupport.outputLooksLikeHeadphones(
+            name: "HUAWEI FreeClip 2", uid: "output", dataSourceName: nil,
+            terminalTypes: [kAudioStreamTerminalTypeUnknown, kAudioStreamTerminalTypeHeadphones]),
+            "an unknown first stream does not hide a later headphone terminal")
+        for terminal in [kAudioStreamTerminalTypeSpeaker, kAudioStreamTerminalTypeLFESpeaker,
+                         kAudioStreamTerminalTypeReceiverSpeaker] {
+            suite.expect(!MixerRoutingSupport.outputLooksLikeHeadphones(
+                name: "Soundcore speaker", uid: "output", dataSourceName: nil, terminalTypes: [terminal]),
+                "a speaker terminal takes precedence over headphone brand keywords")
+        }
+        for terminals: [UInt32] in [[], [kAudioStreamTerminalTypeUnknown], [kAudioStreamTerminalTypeLine]] {
+            suite.expect(MixerRoutingSupport.outputLooksLikeHeadphones(
+                name: "AirPods Pro", uid: "output", dataSourceName: nil, terminalTypes: terminals),
+                "unavailable or generic terminal metadata preserves named headphone support")
+            suite.expect(MixerRoutingSupport.outputLooksLikeHeadphones(
+                name: "Built-in Output", uid: "output", dataSourceName: "Headphones", terminalTypes: terminals),
+                "unavailable or generic terminal metadata preserves wired headphone data sources")
+            suite.expect(!MixerRoutingSupport.outputLooksLikeHeadphones(
+                name: "JBL Flip", uid: "output", dataSourceName: nil, terminalTypes: terminals),
+                "an unknown terminal does not turn every output into headphones")
+        }
         // Issue #256: some browsers' audio helpers answer for themselves, so
         // the mixer walks the parent chain to the nearest regular app.
         let helperParents: [pid_t: pid_t] = [500: 100, 100: 1, 700: 1,

@@ -6,6 +6,25 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Summary
+Clearer screenshot tools, more reliable clipboard history and Command Bar answers, and better monitoring and headphone detection.
+
+### Changed
+- Command Bar accepts British unit spellings and spaced fluid-ounce names.
+- The window switcher's icon row, previews and hints use Liquid Glass when available and enabled.
+
+### Fixed
+- The cleaner leaves system log files out of app leftovers.
+- Command Bar handles extreme date offsets without crashing and keeps tiny non-temperature unit conversions from reading as zero.
+- Clipboard history ignores marked temporary content and restores the previous copy without another notice, while preserving ordinary copies and sensitive-text filtering.
+- Pinned GPU, temperature and fan menu bar readings follow the selected System monitor update interval.
+- Dynamic Island's full-screen hiding recognizes games whose windows cover the desktop without entering a separate full-screen space.
+- Volume mixer recognizes headphones from their Core Audio device information, including models whose names do not say headphones.
+- Screenshot area selection keeps its crosshair over other apps, and card shadows follow the captured window's own rounded corners.
+
+### Contributors
+Thanks to @0miicr0n, @DigitalWestern, @hash00, @Jacob-9909, @JB-OD, @JeanBaeez, @Likheet, @muratozturk5, @raymondchins and @stors789.
+
 ## [3.4.2] - 2026-10-21
 
 ### Summary

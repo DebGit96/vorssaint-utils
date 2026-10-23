@@ -366,6 +366,22 @@ def main():
                         "final class NotchAudioLevelService:")
           + "}\n")
     clipboard = "Sources/Vorssaint/Services/Clipboard/ClipboardHistoryService.swift"
+    pending_restore = [line for line in (ROOT / clipboard).read_text().splitlines(keepends=True)
+                       if line.startswith("    private var pendingRestore:")]
+    if len(pending_restore) != 1:
+        raise ValueError("Expected one pending clipboard restore declaration")
+    write("ClipboardCaptureRestore.swift", "import AppKit\nimport Foundation\nimport Combine\n"
+          + "extension ClipboardCaptureRestoreTests {\nfinal class Service: Fixture {\n"
+          + pending_restore[0].replace("private ", "", 1)
+          + declaration(clipboard, "    @Published private(set) var entries:")
+          + "".join(declaration(clipboard, prefix).replace("private ", "", 1) for prefix in [
+              "    private enum CapturedContent", "    private func captureIfChanged(",
+              "    private static func readPasteboard(", "    private func matchingEntry(",
+              "    private func stop()", "    private func promote(", "    private func touch(",
+              "    private var firstRecentIndex:", "    private func normalizeEntryOrder(",
+              "    private func insertPromoted("])
+          + "func setEntries(_ values: [ClipboardHistoryEntry]) { entries = values }\n"
+          + "}\n}\n")
     write("ClipboardPreview.swift", "import Foundation\nimport Combine\n"
           + "extension ClipboardPreviewContract {\nfinal class Service: Fixture {\n"
           + declaration(clipboard, "    @Published private(set) var entries:")
