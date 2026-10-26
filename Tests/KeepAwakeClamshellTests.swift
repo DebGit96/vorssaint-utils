@@ -50,6 +50,12 @@ extension KeepAwakeLidSleepContract {
         static var calls: [Bool] = []
         static var results = [true]
         static var disabled = false
+        static var credentialPermits = 0
+        static var credentialReleases = 0
+        static func permitCredentialRequest() { credentialPermits += 1 }
+        static func releaseCredentialAfterQueuedWrites() { credentialReleases += 1 }
+        // Upstream behaviour by default; the app ships with prompts off.
+        static var allowsAuthorizationPrompts = true
         static var configured = true
         static var installCompletions: [(Bool) -> Void] = []
         static let sleepStateQueue = DispatchQueue.native
@@ -615,5 +621,41 @@ enum KeepAwakeClamshellTests {
         C.AdminShell.answer(true); C.drain()
         expect(!C.Sudoers.disabled && !C.UserDefaults.standard.bool(forKey: C.DefaultsKey.sleepDisabledFlag),
                "late setup probes cannot resurrect the override cleared by authorized restore")
+
+        // Credential policy: only switching closed-lid mode on may ask for the
+        // password; switching it off drops the copy held in memory.
+        let credential = C.reset(); credential.clamshellPreferred = false
+        C.Sudoers.credentialPermits = 0; C.Sudoers.credentialReleases = 0
+        credential.activate(minutes: 15); C.drain()
+        credential.deactivate(reason: .timer); C.drain()
+        credential.refreshPasswordlessStatus(); C.drain()
+        credential.recoverIfNeeded(); C.drain()
+        expect(C.Sudoers.credentialPermits == 0,
+               "sessions, status refreshes and launch recovery never permit a credential request")
+        credential.clamshellPreferred = true; C.drain()
+        expect(C.Sudoers.credentialPermits == 1 && C.Sudoers.credentialReleases == 0,
+               "switching closed-lid mode on permits exactly one credential request")
+        credential.clamshellPreferred = false; C.drain()
+        expect(C.Sudoers.credentialPermits == 1 && C.Sudoers.credentialReleases == 1,
+               "switching closed-lid mode off releases the held credential")
+
+        // As shipped, restores never prompt: a refused restore keeps the marker,
+        // which the menu bar badge shows until the next closed-lid session.
+        let unattended = C.reset(); C.Sudoers.allowsAuthorizationPrompts = false
+        C.UserDefaults.standard.set(true, forKey: C.DefaultsKey.sleepDisabledFlag)
+        C.Sudoers.disabled = true; C.Sudoers.results = [false]
+        unattended.recoverIfNeeded(); C.drain()
+        expect(C.AdminShell.prompts == 0 && C.UserDefaults.standard.bool(forKey: C.DefaultsKey.sleepDisabledFlag)
+               && unattended.recoveryCompleted && !unattended.clamshellRestorePending
+               && C.Sudoers.sleepStateProbeSuspensions == 0,
+               "launch recovery that cannot turn the override off asks for nothing and keeps the marker")
+
+        let ending = active(); C.Sudoers.allowsAuthorizationPrompts = false
+        C.Sudoers.results = [false]
+        ending.deactivate(reason: .timer); C.drain()
+        expect(C.AdminShell.prompts == 0 && C.UserDefaults.standard.bool(forKey: C.DefaultsKey.sleepDisabledFlag)
+               && !ending.clamshellActive && !ending.clamshellRestorePending
+               && C.Sudoers.sleepStateProbeSuspensions == 0,
+               "a session end whose restore is refused asks for nothing and keeps the marker")
     }
 }

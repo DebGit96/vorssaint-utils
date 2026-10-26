@@ -117,6 +117,7 @@ enum KeepAwakeLidSleepContract {
         Sudoers.calls = []; Sudoers.results = [true]; Sudoers.disabled = false
         Sudoers.configured = true; Sudoers.installCompletions = []
         Sudoers.sleepStateProbeSuspensions = 0; Sudoers.probeWrites = []
+        Sudoers.credentialPermits = 0; Sudoers.credentialReleases = 0; Sudoers.allowsAuthorizationPrompts = true
         AdminShell.completions = []; AdminShell.prompts = 0; AdminShell.syncResult = false
         Shell.status = 0; Shell.output = nil
         Thread.waits = 0; Thread.onWait = nil; onSleep = nil

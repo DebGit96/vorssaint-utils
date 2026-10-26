@@ -495,9 +495,15 @@ enum PreferencesFeatureTests {
         let originalPrimary = SudoersSupport.primaryKeychainService
         let originalServices = SudoersSupport.keychainServices
         let originalDetector = Sudoers.ruleFileDetector
+        let originalLegacy = SudoersSupport.legacyKeychainServices
         SudoersSupport.primaryKeychainService = testService
         SudoersSupport.keychainServices = [testService]
         Sudoers.ruleFileDetector = { false }
+        // Never touch the real hand-made legacy item: record removals instead.
+        let legacyService = "vorssaint-test-legacy-\(UUID().uuidString)"
+        var legacyRemovals: [String] = []
+        SudoersSupport.legacyKeychainServices = [legacyService]
+        SudoersSupport.legacyItemRemover = { service, _ in legacyRemovals.append(service) }
 
         // Enterprise lifecycle: Sudoers.install returns false when prompt is canceled
         var installCancelResult: Bool?
@@ -506,6 +512,7 @@ enum PreferencesFeatureTests {
         SudoersSupport.mockElevationPromptHandler = { completion in
             completion(nil)
         }
+        Sudoers.permitCredentialRequest()
         Sudoers.install { ok in
             installCancelResult = ok
             sema1.signal()
@@ -524,6 +531,7 @@ enum PreferencesFeatureTests {
         SudoersSupport.verificationRunner = { _, _ in
             return (1, "sudo: 1 incorrect password attempt")
         }
+        Sudoers.permitCredentialRequest()
         Sudoers.install { ok in
             installFailResult = ok
             sema2.signal()
@@ -544,6 +552,7 @@ enum PreferencesFeatureTests {
         SudoersSupport.verificationRunner = { _, _ in
             return (0, "SleepDisabled 0")
         }
+        Sudoers.permitCredentialRequest()
         Sudoers.install { ok in
             installSuccessResult = ok
             sema3.signal()
@@ -553,6 +562,93 @@ enum PreferencesFeatureTests {
                "Sudoers.install returns true when password verifies successfully")
         suite.expect(SudoersSupport.keychainPassword(services: [testService]) == "valid-enterprise-pass-1234",
                "Sudoers.install retains verified password in keychain")
+
+        suite.expect(Sudoers.holdsCredential && legacyRemovals == [legacyService],
+               "a verified password is held in memory and the hand-made legacy item is removed")
+
+        // Credential policy: probes use the held copy and never read the keychain.
+        var typedPasswords: [String] = []
+        SudoersSupport.verificationRunner = { _, password in
+            typedPasswords.append(password)
+            return (0, "")
+        }
+        var reads = SudoersSupport.keychainReadCount
+        suite.expect(Sudoers.isConfigured() && typedPasswords == ["valid-enterprise-pass-1234"]
+               && SudoersSupport.keychainReadCount == reads,
+               "a status probe uses the held password without reading the keychain")
+        Sudoers.releaseCredentialAfterQueuedWrites()
+        suite.expect(!Sudoers.isConfigured() && !Sudoers.holdsCredential
+               && SudoersSupport.keychainReadCount == reads,
+               "after release a probe reports not configured and still reads nothing")
+
+        // Credential policy: without the toggle's permit, setup asks for nothing.
+        var dialogs = 0
+        SudoersSupport.mockElevationPromptHandler = { completion in dialogs += 1; completion("unused-pass") }
+        var unpermitted: Bool?
+        let sema5 = DispatchSemaphore(value: 0)
+        Sudoers.install { ok in unpermitted = ok; sema5.signal() }
+        _ = sema5.wait(timeout: .now() + 3.0)
+        suite.expect(unpermitted == false && dialogs == 0 && SudoersSupport.keychainReadCount == reads,
+               "setup that the toggle did not start shows no dialog and reads no keychain item")
+
+        let originalLifetime = Sudoers.credentialPermitLifetime
+        Sudoers.credentialPermitLifetime = -1
+        Sudoers.permitCredentialRequest()
+        var expired: Bool?
+        let sema6 = DispatchSemaphore(value: 0)
+        Sudoers.install { ok in expired = ok; sema6.signal() }
+        _ = sema6.wait(timeout: .now() + 3.0)
+        Sudoers.credentialPermitLifetime = originalLifetime
+        suite.expect(expired == false && dialogs == 0,
+               "an expired permit cannot open the password dialog")
+
+        // Credential policy: the stored copy is used first, without the dialog.
+        legacyRemovals = []
+        Sudoers.permitCredentialRequest()
+        var fromStore: Bool?
+        let sema7 = DispatchSemaphore(value: 0)
+        Sudoers.install { ok in fromStore = ok; sema7.signal() }
+        _ = sema7.wait(timeout: .now() + 3.0)
+        suite.expect(fromStore == true && dialogs == 0 && Sudoers.holdsCredential
+               && SudoersSupport.keychainReadCount == reads + 1 && legacyRemovals == [legacyService],
+               "switching on with a stored password makes one keychain read and no dialog")
+        reads = SudoersSupport.keychainReadCount
+
+        // Credential policy: a rejected password is dropped and never retried.
+        SudoersSupport.verificationRunner = { _, _ in (SudoersSupport.passwordRejectedStatus, "Sorry, try again.") }
+        suite.expect(!Sudoers.isConfigured() && !Sudoers.holdsCredential,
+               "a password sudo rejects is dropped from memory")
+        SudoersSupport.verificationRunner = { _, _ in (0, "") }
+        suite.expect(!Sudoers.isConfigured() && SudoersSupport.keychainReadCount == reads,
+               "a rejected password is not tried again by later probes")
+        SudoersSupport.mockElevationPromptHandler = { completion in dialogs += 1; completion("renewed-pass-1234") }
+        Sudoers.permitCredentialRequest()
+        var renewed: Bool?
+        let sema8 = DispatchSemaphore(value: 0)
+        Sudoers.install { ok in renewed = ok; sema8.signal() }
+        _ = sema8.wait(timeout: .now() + 3.0)
+        suite.expect(renewed == true && dialogs == 1 && SudoersSupport.keychainReadCount == reads
+               && SudoersSupport.keychainPassword(services: [testService]) == "renewed-pass-1234",
+               "after a rejection the next switch-on asks for the password instead of reusing the stored one")
+
+        // PTY runner: only a real prompt gets the password, and a second prompt is a rejection.
+        suite.expect(SudoersSupport.endsWithPasswordPrompt("Password:")
+               && SudoersSupport.endsWithPasswordPrompt("[sudo] password for dev: ")
+               && !SudoersSupport.endsWithPasswordPrompt("Your password expires in 3 days")
+               && !SudoersSupport.endsWithPasswordPrompt("Password policy:\nmanaged by EPM\n"),
+               "only a trailing line that names a password and ends with a colon counts as a prompt")
+        let banner = SudoersSupport.runViaPTY(
+            command: ["/bin/bash", "-c", "echo 'Your password expires in 3 days'; read -t 2 pw; [ -z \"$pw\" ]"],
+            password: "never-typed", timeout: 5.0)
+        suite.expect(banner.status == 0 && !banner.output.contains("never-typed"),
+               "a banner that mentions passwords never gets the password typed at it")
+        let repromptStart = Date()
+        let reprompt = SudoersSupport.runViaPTY(
+            command: ["/bin/bash", "-c", "read -s -p 'Password: ' a; echo; read -s -p 'Password: ' b; sleep 4"],
+            password: "wrong", timeout: 6.0)
+        suite.expect(reprompt.status == SudoersSupport.passwordRejectedStatus
+               && Date().timeIntervalSince(repromptStart) < 3.0,
+               "a second password prompt is reported as a rejection right away")
 
         // Enterprise lifecycle: Sudoers.remove purges credential from Keychain
         var removeResult: Bool?
@@ -566,9 +662,13 @@ enum PreferencesFeatureTests {
                "Sudoers.remove succeeds")
         suite.expect(SudoersSupport.keychainPassword(services: [testService]) == nil,
                "Sudoers.remove purges elevation password from keychain")
+        suite.expect(!Sudoers.holdsCredential && legacyRemovals.last == legacyService,
+               "Sudoers.remove also drops the held password and the legacy item")
 
         SudoersSupport.primaryKeychainService = originalPrimary
         SudoersSupport.keychainServices = originalServices
+        SudoersSupport.legacyKeychainServices = originalLegacy
+        SudoersSupport.legacyItemRemover = nil
         Sudoers.ruleFileDetector = originalDetector
         SudoersSupport.mockElevationPromptHandler = nil
         SudoersSupport.verificationRunner = nil

@@ -109,34 +109,34 @@ enum SudoersSupport {
         "#\(uid) ALL=(root) NOPASSWD: /usr/bin/pmset disablesleep 1, /usr/bin/pmset disablesleep 0"
     }
 
-    /// Known Keychain generic password service names for elevation credentials.
-    static var keychainServices = ["vorssaint-sudo", "keepawake-sudo"]
+    /// Keychain services the elevation password is read from: only the item
+    /// this app creates itself. An item the app creates trusts only the app,
+    /// so other processes (including the `security` CLI) get a visible prompt.
+    static var keychainServices = [primaryKeychainService]
 
-    /// Fetches the elevation password from the login keychain if configured.
-    /// Tries the specified account first, then falls back to searching by service name alone.
+    /// Items created by hand with `security add-generic-password` in earlier
+    /// setups. Their access list trusts the `security` CLI, so any process
+    /// could read them silently. Never read; deleted once the app holds its own copy.
+    static var legacyKeychainServices = ["keepawake-sudo"]
+    /// Test seam for `removeLegacyKeychainItems`: receives (service, account).
+    static var legacyItemRemover: ((String, String) -> Void)?
+
+    /// Number of keychain password reads, so tests can prove a path never reads it.
+    private(set) static var keychainReadCount = 0
+
+    /// Returned by `runViaPTY` when sudo rejected the password.
+    static let passwordRejectedStatus: Int32 = -2
+
+    /// Fetches the elevation password for `account` from the login keychain.
     static func keychainPassword(services: [String] = keychainServices,
-                                 account: String? = NSUserName()) -> String? {
+                                 account: String = NSUserName()) -> String? {
+        guard !account.isEmpty else { return nil }
         for service in services {
-            if let account = account, !account.isEmpty {
-                let query: [String: Any] = [
-                    kSecClass as String: kSecClassGenericPassword,
-                    kSecAttrService as String: service,
-                    kSecAttrAccount as String: account,
-                    kSecReturnData as String: true,
-                    kSecMatchLimit as String: kSecMatchLimitOne
-                ]
-                var item: CFTypeRef?
-                let status = SecItemCopyMatching(query as CFDictionary, &item)
-                if status == errSecSuccess, let data = item as? Data,
-                   let secret = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .newlines),
-                   secret.count >= 4 {
-                    return secret
-                }
-            }
-
+            keychainReadCount += 1
             let query: [String: Any] = [
                 kSecClass as String: kSecClassGenericPassword,
                 kSecAttrService as String: service,
+                kSecAttrAccount as String: account,
                 kSecReturnData as String: true,
                 kSecMatchLimit as String: kSecMatchLimitOne
             ]
@@ -149,6 +149,18 @@ enum SudoersSupport {
             }
         }
         return nil
+    }
+
+    /// Deletes the hand-made legacy items through `/usr/bin/security`, which
+    /// those items already trust, so the deletion itself raises no prompt.
+    static func removeLegacyKeychainItems(account: String = NSUserName()) {
+        for service in legacyKeychainServices {
+            if let remover = legacyItemRemover {
+                remover(service, account)
+            } else {
+                _ = Shell.run("/usr/bin/security", ["delete-generic-password", "-s", service, "-a", account])
+            }
+        }
     }
 
     /// Runs a privileged command inside a pseudo-terminal (PTY), answering the sudo password
@@ -178,6 +190,7 @@ enum SudoersSupport {
         var output = Data()
         var buf = [UInt8](repeating: 0, count: 4096)
         var sent = false
+        var sentAt = 0
         var childReaped = false
         var authRejected = false
         var exitStatus: Int32 = 0
@@ -195,26 +208,27 @@ enum SudoersSupport {
                 if bytesRead > 0 {
                     output.append(contentsOf: buf[0..<bytesRead])
                     let str = String(decoding: output, as: UTF8.self)
-                    let lower = str.lowercased()
-                    let isPrompt = lower.contains("password") ||
-                                   lower.contains("passcode") ||
-                                   lower.contains("passwort") ||
-                                   str.contains("assword")
 
-                    if !sent && isPrompt {
-                        usleep(200_000)
-                        let cleanPassword = password.trimmingCharacters(in: .newlines)
-                        let pwData = (cleanPassword + "\n").data(using: .utf8)!
-                        pwData.withUnsafeBytes { ptr in
-                            _ = write(master, ptr.baseAddress!, pwData.count)
+                    if !sent {
+                        if endsWithPasswordPrompt(str) {
+                            usleep(200_000)
+                            let cleanPassword = password.trimmingCharacters(in: .newlines)
+                            let pwData = (cleanPassword + "\n").data(using: .utf8)!
+                            pwData.withUnsafeBytes { ptr in
+                                _ = write(master, ptr.baseAddress!, pwData.count)
+                            }
+                            sent = true
+                            sentAt = output.count
                         }
-                        sent = true
-                    } else if sent && (str.contains("Sorry, try again") ||
-                                       lower.contains("incorrect password") ||
-                                       str.contains("Admin rights")) {
-                        authRejected = true
-                        kill(pid, SIGTERM)
-                        break
+                    } else {
+                        // A refusal banner or a second prompt after the answer.
+                        let reply = String(decoding: output.suffix(from: sentAt), as: UTF8.self)
+                        if reply.contains("Sorry, try again") || reply.lowercased().contains("incorrect password")
+                            || reply.contains("Admin rights") || endsWithPasswordPrompt(reply) {
+                            authRejected = true
+                            kill(pid, SIGTERM)
+                            break
+                        }
                     }
                 } else if bytesRead <= 0 {
                     break
@@ -259,12 +273,24 @@ enum SudoersSupport {
 
         let rc: Int32
         if authRejected {
-            rc = 1
+            rc = passwordRejectedStatus
         } else if (exitStatus & 0x7F) == 0 {
             rc = (exitStatus >> 8) & 0xFF
         } else {
             rc = 1
         }
         return (rc, String(decoding: output, as: UTF8.self))
+    }
+
+    /// True when the last non-empty line of `text` is a password prompt: it
+    /// names a password and ends with a colon. A banner that only mentions
+    /// passwords (an EPM notice, a policy line) never gets the credential typed at it.
+    static func endsWithPasswordPrompt(_ text: String) -> Bool {
+        guard let line = text.components(separatedBy: .newlines)
+            .last(where: { !$0.trimmingCharacters(in: .whitespaces).isEmpty })?
+            .trimmingCharacters(in: .whitespaces),
+              line.hasSuffix(":") else { return false }
+        let lower = line.lowercased()
+        return lower.contains("password") || lower.contains("passcode") || lower.contains("passwort")
     }
 }

@@ -50,6 +50,8 @@ enum DefaultsKey {
     static let hasOnboarded = "hasOnboarded"
     static let sleepDisabledFlag = "vorssDisabledSleep"   // internal guard for pmset disablesleep
     static let dimmedDisplaySavedBrightness = "vorssDimmedDisplaySavedBrightness" // internal guard for closed-lid screen dimming recovery
+    static let keepAwakeRestartHandoff = "keepAwakeRestartHandoff"   // internal: epoch seconds an updater writes before a deliberate restart
+    static let keepAwakeRestartSnapshot = "keepAwakeRestartSnapshot" // internal: the manual session a deliberate restart resumes
     static let scrollInverterEnabled = "scrollInverterEnabled"
     static let scrollInverterHorizontalEnabled = "scrollInverterHorizontalEnabled"
     static let scrollHorizontalEnabled = "scrollHorizontalEnabled"

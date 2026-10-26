@@ -535,6 +535,7 @@ if (( TEST )); then
         Sources/Vorssaint/Services/Metrics/MetricFormat.swift
         Sources/Vorssaint/Services/Metrics/VMStatisticsDecoder.swift
         Sources/Vorssaint/Services/KeepAwakeAutomationSupport.swift
+        Sources/Vorssaint/Services/KeepAwakeRestartSupport.swift
         Sources/Vorssaint/Services/SudoersSupport.swift
         Sources/Vorssaint/Services/Metrics/BatteryTimeSupport.swift
         Sources/Vorssaint/Services/Metrics/BatteryPowerSupport.swift

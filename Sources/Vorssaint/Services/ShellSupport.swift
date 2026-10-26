@@ -161,49 +161,137 @@ enum Sudoers {
         ruleFileDetector?() ?? ([rulePath] + legacyRulePaths).contains { FileManager.default.fileExists(atPath: $0) }
     }
 
+    // MARK: - Elevation credential (PTY fallback)
+    //
+    // The password the PTY fallback types into `sudo` is held in memory while
+    // closed-lid mode is on. Launch, status probes, timers and quit only ever
+    // use that copy, so none of them can raise a keychain prompt or a password
+    // dialog. The keychain is read, and the dialog shown, only by `install`
+    // right after the user switches closed-lid mode on.
+
+    private static let credentialLock = NSLock()
+    private static var heldCredential: String?
+    private static var credentialPermitExpiry: Date?
+    /// Set when sudo rejected the stored copy, so the next setup asks for the
+    /// password instead of trying the stale one again (each failure counts
+    /// toward an account lockout).
+    private static var storedCredentialRejected = false
+    /// How long switching closed-lid mode on allows one credential request.
+    static var credentialPermitLifetime: TimeInterval = 60
+
+    private static func withCredentialLock<T>(_ body: () -> T) -> T {
+        credentialLock.lock()
+        defer { credentialLock.unlock() }
+        return body()
+    }
+
+    static var holdsCredential: Bool { withCredentialLock { heldCredential != nil } }
+
+    /// Called when the user switches closed-lid mode on: the next `install`
+    /// within `credentialPermitLifetime` may read the keychain or show the dialog.
+    static func permitCredentialRequest() {
+        withCredentialLock { credentialPermitExpiry = Date().addingTimeInterval(credentialPermitLifetime) }
+    }
+
+    private static func consumeCredentialPermit() -> Bool {
+        withCredentialLock {
+            defer { credentialPermitExpiry = nil }
+            guard let expiry = credentialPermitExpiry else { return false }
+            return expiry > Date()
+        }
+    }
+
+    private static func holdCredential(_ password: String) {
+        withCredentialLock {
+            heldCredential = password
+            storedCredentialRejected = false
+        }
+    }
+
+    /// Drops the in-memory password once every write already queued, such as
+    /// the restore that switching closed-lid mode off just requested, has run.
+    static func releaseCredentialAfterQueuedWrites() {
+        sleepStateQueue.async { releaseCredential() }
+    }
+
+    private static func releaseCredential() {
+        withCredentialLock { heldCredential = nil }
+    }
+
+    /// Runs the PTY fallback with `password` (through the test seam when one
+    /// is installed, so tests never type a fake password into the real sudo).
+    private static func runPrivileged(_ command: [String], password: String) -> (status: Int32, output: String) {
+        SudoersSupport.verificationRunner?(command, password)
+            ?? SudoersSupport.runViaPTY(command: command, password: password)
+    }
+
+    /// Re-applies the current SleepDisabled state with `password`, which
+    /// changes nothing on the system and proves the credential works.
+    private static func credentialWorks(_ password: String) -> Bool {
+        let report = Shell.run("/usr/bin/pmset", ["-g"])
+        let sleepDisabled = report.status == 0 && SudoersSupport.sleepDisabled(inPmsetOutput: report.output)
+        let command = ["/usr/bin/sudo", "/usr/bin/pmset", "disablesleep", sleepDisabled ? "1" : "0"]
+        return runPrivileged(command, password: password).status == 0
+    }
+
     static func install(completion: @escaping (Bool) -> Void) {
         if isConfigured() {
             completion(true)
             return
         }
+        // Anything but the user switching closed-lid mode on (a new session,
+        // a screen unlock, a retry) ends here without any prompt.
+        guard consumeCredentialPermit() else {
+            sudoersLog.notice("closed-lid setup needs the elevation password; switch closed-lid mode on to provide it")
+            completion(false)
+            return
+        }
 
-        let finishWithCredentialPrompt: () -> Void = {
-            SudoersSupport.promptForElevationPassword { password in
-                guard let password, !password.isEmpty else {
+        // The stored copy first: one keychain read, which macOS may confirm
+        // with its own prompt for a rebuilt app. Verifying it runs off the
+        // calling thread; the dialog is only shown when it is missing or refused.
+        let skipStored = withCredentialLock { storedCredentialRejected }
+        if !skipStored, let stored = SudoersSupport.keychainPassword() {
+            DispatchQueue.global(qos: .userInitiated).async {
+                if credentialWorks(stored) {
+                    holdCredential(stored)
+                    SudoersSupport.removeLegacyKeychainItems()
+                    completion(true)
+                    return
+                }
+                withCredentialLock { storedCredentialRejected = true }
+                askForCredential(completion: completion)
+            }
+            return
+        }
+        askForCredential(completion: completion)
+    }
+
+    /// Shows the in-app password dialog; nothing is stored until sudo accepts the answer.
+    private static func askForCredential(completion: @escaping (Bool) -> Void) {
+        SudoersSupport.promptForElevationPassword { password in
+            guard let password, !password.isEmpty else {
+                completion(false)
+                return
+            }
+            DispatchQueue.global(qos: .userInitiated).async {
+                guard credentialWorks(password) else {
                     completion(false)
                     return
                 }
-                DispatchQueue.global(qos: .userInitiated).async {
-                    let saved = SudoersSupport.saveKeychainPassword(password)
-                    if saved {
-                        let report = Shell.run("/usr/bin/pmset", ["-g"])
-                        let sleepDisabled = report.status == 0 && SudoersSupport.sleepDisabled(inPmsetOutput: report.output)
-                        let cmd = ["/usr/bin/sudo", "/usr/bin/pmset", "disablesleep", sleepDisabled ? "1" : "0"]
-                        let verifyResult = SudoersSupport.verificationRunner?(cmd, password)
-                            ?? SudoersSupport.runViaPTY(command: cmd, password: password)
-                        if verifyResult.status == 0 {
-                            completion(true)
-                            return
-                        } else {
-                            SudoersSupport.deleteKeychainPassword()
-                        }
-                    }
-                    completion(false)
+                holdCredential(password)
+                if SudoersSupport.saveKeychainPassword(password) {
+                    SudoersSupport.removeLegacyKeychainItems()
                 }
+                completion(true)
             }
-        }
-
-        if SudoersSupport.keychainPassword() == nil {
-            finishWithCredentialPrompt()
-        } else {
-            // Existing keychain credential failed isConfigured(); clear it and re-prompt.
-            SudoersSupport.deleteKeychainPassword()
-            finishWithCredentialPrompt()
         }
     }
 
     static func remove(completion: @escaping (Bool) -> Void) {
+        releaseCredential()
         SudoersSupport.deleteKeychainPassword()
+        SudoersSupport.removeLegacyKeychainItems()
         guard ruleFilesPresent else {
             completion(true)
             return
@@ -231,6 +319,12 @@ enum Sudoers {
         }
     }
 
+    /// Restoring sleep never opens the administrator prompt: it runs from
+    /// timers, launch recovery and unattended restarts, none of which may wait
+    /// for input. A refused restore keeps the recovery marker, and the menu bar
+    /// badge shows the override until the next closed-lid session turns it off.
+    static var allowsAuthorizationPrompts = false
+
     /// Completes earlier probes before authorization can restore sleep and
     /// suspends later probes until it finishes. The queue remains free for a
     /// silent restore during quit; the main-thread guard cancels stale prompts.
@@ -253,7 +347,7 @@ enum Sudoers {
                 return
             }
             DispatchQueue.main.async {
-                guard shouldProceed() else {
+                guard shouldProceed(), allowsAuthorizationPrompts else {
                     finish(false)
                     return
                 }
@@ -275,22 +369,29 @@ enum Sudoers {
 
         // On corporate-managed Macs (CyberArk EPM / ServiceNow Elevate Trusted), non-interactive
         // sudo is denied at PAM level (/private/cyberark/CyberArkEPMPAM) despite installed rules.
-        // Fall back to bare sudo in a pseudo-terminal (PTY) with credentials from the login Keychain.
-        if let password = SudoersSupport.keychainPassword() {
-            let ptyResult = SudoersSupport.runViaPTY(
-                command: ["/usr/bin/sudo", "/usr/bin/pmset", "disablesleep", on ? "1" : "0"],
-                password: password
-            )
+        // Fall back to bare sudo in a pseudo-terminal (PTY) with the password held in memory.
+        // This never reads the keychain: see "Elevation credential" above.
+        if let password = withCredentialLock({ heldCredential }) {
+            let ptyResult = runPrivileged(["/usr/bin/sudo", "/usr/bin/pmset", "disablesleep", on ? "1" : "0"],
+                                          password: password)
             if ptyResult.status == 0 {
-                sudoersLog.info("Keychain PTY elevation succeeded for pmset disablesleep \(on ? "1" : "0")")
+                sudoersLog.info("PTY elevation succeeded for pmset disablesleep \(on ? "1" : "0")")
                 return true
-            } else {
-                sudoersLog.error("Keychain PTY elevation failed with status \(ptyResult.status)")
-                return false
             }
+            if ptyResult.status == SudoersSupport.passwordRejectedStatus {
+                // Never retry a rejected password automatically.
+                withCredentialLock {
+                    heldCredential = nil
+                    storedCredentialRejected = true
+                }
+                sudoersLog.error("sudo rejected the held elevation password; closed-lid mode needs it again")
+            } else {
+                sudoersLog.error("PTY elevation failed with status \(ptyResult.status)")
+            }
+            return false
         }
 
-        sudoersLog.notice("Elevation password not found in Keychain. Add item with: security add-generic-password -a \"$USER\" -s vorssaint-sudo -w -U")
+        sudoersLog.notice("no elevation password in memory; switching closed-lid mode on asks for it")
         return false
     }
 }
