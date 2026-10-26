@@ -912,7 +912,7 @@ if (( INSTALL )); then
         done
     fi
     INSTALL_DEST="/Applications/$APP_NAME.app"
-    rm -rf "$INSTALL_DEST"
+    rm -rf "$INSTALL_DEST" 2>/dev/null || find "$INSTALL_DEST" -mindepth 1 -delete 2>/dev/null || true
     ditto --noextattr --noqtn "$STAGE" "$INSTALL_DEST"
     sign_installed_bundle "$INSTALL_DEST"
     echo "✓ Installed: $INSTALL_DEST"

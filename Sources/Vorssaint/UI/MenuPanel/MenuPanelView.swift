@@ -2799,7 +2799,7 @@ struct KeepAwakeCard: View {
 
                 optionRow(title: l10n.s.clamshellTitle,
                           caption: clamshellCaption,
-                          isOn: $awake.clamshellPreferred,
+                          isOn: clamshellBinding,
                           disabled: awake.clamshellSetupInProgress,
                           captionIsError: awake.clamshellSetupFailed)
             }
@@ -3017,6 +3017,7 @@ struct KeepAwakeCard: View {
         let selected = manualSession && awake.sessionMinutes == minutes
         return Button {
             if selected {
+                awake.clamshellPreferred = false
                 awake.toggle()
             } else {
                 awake.activate(minutes: minutes)
@@ -3048,7 +3049,10 @@ struct KeepAwakeCard: View {
     private var untilChip: some View {
         KeepAwakeEndTimePicker(selection: untilTime,
                                activeEnd: manualSession && awake.sessionMinutes == nil ? awake.endDate : nil,
-                               onStop: { awake.toggle() }) {
+                               onStop: {
+                                   awake.clamshellPreferred = false
+                                   awake.toggle()
+                               }) {
             awake.activate(until: KeepAwakeAutomationSupport.resolvedUntilDate(picked: untilTime.wrappedValue, now: Date()))
             untilDraft = nil
         }
@@ -3130,14 +3134,29 @@ struct KeepAwakeCard: View {
         return awake.passwordlessClamshell ? l10n.s.clamshellReady : l10n.s.clamshellNeedsPassword
     }
 
+    private var clamshellBinding: Binding<Bool> {
+        Binding(
+            get: { awake.clamshellPreferred },
+            set: { on in
+                awake.clamshellPreferred = on
+                if on, !awake.isActive {
+                    awake.startLastPick()
+                }
+            }
+        )
+    }
+
     private var activeBinding: Binding<Bool> {
         Binding(
             get: { awake.isActive },
             set: { on in
                 if on {
                     awake.startLastPick()
-                } else if awake.isActive {
-                    awake.toggle()
+                } else {
+                    awake.clamshellPreferred = false
+                    if awake.isActive {
+                        awake.toggle()
+                    }
                 }
             }
         )

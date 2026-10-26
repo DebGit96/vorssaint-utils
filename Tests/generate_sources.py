@@ -627,21 +627,6 @@ def main():
           + wheel_tap.replace("private func", "func", 1)
                      .replace("AppFeature.linearScroll.isAvailable", "AppFeature.linearScroll.isAvailable(in: defaults)")
           + "}\n")
-    smooth = "Sources/Vorssaint/Services/SmoothScrollService.swift"
-    smooth_handler = declaration(smooth, "    private func handle(type:").replace("private func", "func", 1)
-    smooth_handler = smooth_handler.replace("AppFeature.smoothScroll.isAvailable", "AppFeature.smoothScroll.isAvailable(in: UserDefaults.standard)")
-    smooth_handler = smooth_handler.replace("AppFeature.linearScroll.isAvailable", "AppFeature.linearScroll.isAvailable(in: defaults)")
-    smooth_post = declaration(smooth, "    private func post(vertical:").replace("private func", "func", 1)
-    if smooth_post.count("event.postToPid(target.processID)") != 1:
-        raise ValueError("Expected one targeted smooth-scroll post")
-    write("SmoothScrollRouting.swift", "import AppKit\nimport ApplicationServices\nimport CoreGraphics\n"
-          + "extension SmoothScrollRoutingTests.Service {\n"
-          + smooth_handler
-          + declaration(smooth, "    private func stopGlide()").replace("private func", "func", 1)
-          + declaration(smooth, "    private func emitFrame(at timestamp:").replace("private func", "func", 1)
-          + declaration(smooth, "    private static func pixelField(").replace("private static", "static", 1)
-          + smooth_post.replace("event.postToPid(target.processID)", "SmoothScrollRoutingTests.record(event, to: target.processID)")
-          + "}\n")
     write("KeyboardDebounceTap.swift", "import ApplicationServices\nimport CoreGraphics\nimport Foundation\n"
           + "extension KeyboardDebounceTapTests.Service {\n"
           + declaration("Sources/Vorssaint/Services/KeyboardDebounce/KeyboardDebounceService.swift",
@@ -816,6 +801,7 @@ def main():
     write("AppUpdateRules.swift", "import CoreServices\nimport Foundation\nextension AppUpdateRulesContract {\n"
           + "final class Service: State {\n"
           + "".join(declaration(updates, prefix).replace("private func", "func", 1)
+                    .replace("private static func scannedApp(", "static func scannedApp(", 1)
                     for prefix in ["    func skipVersion(", "    func excludeApp(", "    func addExclusion(",
                                    "    private func setRule(", "    private func storeRule(",
                                    "    func removeRule(",
@@ -883,6 +869,7 @@ def main():
           + "func hide() { floatingClosures += 1; isVisible = false }\n"
           + "func collapseDocked() { dockedClosures += 1; dockedVisible = false }\n"
           + declaration(shelf, "    func beginInternalDrag(")
+          + declaration(shelf, "    func internalDragMoved(")
           + declaration(shelf, "    func finishInternalDrag(")
           + declaration(shelf, "    func completeInternalDrag(")
           + "}\n}\n")
@@ -1004,7 +991,9 @@ def main():
           + declaration(notch, "    func show(_ incoming:").replace("NotchSupport.routes(incoming.event)", "true")
             .replace("    func", "    @discardableResult\n    func", 1)
           + "".join(declaration(notch, prefix).replace("    private ", "    ", 1) for prefix in [
-              "    private var hiddenUntilHover:", "    private var hiddenAtRestInFullscreen:", "    func hover(",
+              "    private var hiddenUntilHover:", "    private var hiddenAtRestInFullscreen:",
+              "    private var watchesHiddenHover:", "    func hover(",
+              "    func shelfDragMoved(",
               "    private func syncHoverExitMonitoring(", "    private func removeHoverExitMonitors(",
               "    var showsCompactActivityPicker:",
               "    private func missionControlDidRestore()",

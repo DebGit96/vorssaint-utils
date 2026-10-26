@@ -191,7 +191,7 @@ extension NotchStrings {
         capsuleShape: "Capsule",
         notchShape: "Notch",
         withoutNotchUnreached: "With the Display chosen on the Behavior tab, Dynamic Island doesn’t appear on these displays.",
-        showOnAllDisplays: "Show on All Displays",
+        showOnAllDisplays: "Show on all displays",
         capsuleFit: "Capsule fit",
         fromTop: "Distance from top",
         capsuleFitHint: "Resizes the capsule and lowers it from the top of the screen on displays without a notch.",
