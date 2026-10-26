@@ -180,6 +180,7 @@ enum DefaultsKey {
     static let diskImageInstallerUseUserApplications = "diskImageInstallerUseUserApplications"
     static let autoQuitEnabled = "autoQuitEnabled"
     static let autoQuitExceptions = "autoQuitExceptions"  // [bundle id] kept running
+    static let autoQuitDockApps = "autoQuitDockApps"  // [bundle id] menu bar apps explicitly allowed to quit in the Dock
     // Quit/close protection: each shortcut owns its full configuration and app list.
     static let quitProtectionQuitEnabled = "quitProtectionQuitEnabled"
     static let quitProtectionQuitMode = "quitProtectionQuitMode"
@@ -704,6 +705,7 @@ enum DefaultsKey {
     static let screenshotWatermarkPresets = "screenshotWatermarkPresets"
     static let screenshotOpenEditorDirectly = "screenshotOpenEditorDirectly"
     static let screenshotCopyToClipboard = "screenshotCopyToClipboard"
+    static let screenshotCopyImageOnly = "screenshotCopyImageOnly"
     static let screenshotAddToShelf = "screenshotAddToShelf"
     static let screenshotPreviewPosition = "screenshotPreviewPosition"
     static let screenshotPreviewTakesFocus = "screenshotPreviewTakesFocus"
@@ -805,6 +807,7 @@ enum DefaultsKey {
     // Optional top-of-screen workspace and activity presentations.
     static let notchShowPlayingMusic = "notchShowPlayingMusic"
     static let notchIncludeOtherPlayers = "notchIncludeOtherPlayers"
+    static let notchMusicShowVolume = "notchMusicShowVolume"
     static let notchPreferredPlayer = "notchPreferredPlayer"
     static let notchDefaultProfileInitialized = "notchDefaultProfileInitialized" // local migration marker; never backed up
     static let notchInitialExtensionsInstalled = "notchInitialExtensionsInstalled" // local first-install marker; never backed up
@@ -1316,6 +1319,7 @@ enum Defaults {
         // Finder never benefits from being "quit" (it just relaunches), so
         // it's excepted out of the box.
         DefaultsKey.autoQuitExceptions: mandatoryAutoQuitExceptionBundleIDs,
+        DefaultsKey.autoQuitDockApps: [String](),
         DefaultsKey.quitProtectionQuitEnabled: false,
         DefaultsKey.quitProtectionQuitMode: QuitProtectionMode.hold.rawValue,
         DefaultsKey.quitProtectionQuitHoldDurationMs: QuitProtectionSupport.defaultHoldDurationMilliseconds,
@@ -1415,6 +1419,7 @@ enum Defaults {
         DefaultsKey.snippetSoundName: defaultSnippetSoundName,
         DefaultsKey.notchShowPlayingMusic: true,
         DefaultsKey.notchIncludeOtherPlayers: true,
+        DefaultsKey.notchMusicShowVolume: false,
         DefaultsKey.notchPreferredPlayer: "",
         DefaultsKey.notchIdleContent: NotchIdleContent.music.rawValue,
         DefaultsKey.notchHiddenControls: NotchControlItem.defaultHidden,
@@ -1907,6 +1912,7 @@ enum Defaults {
         DefaultsKey.screenshotWatermarkPresets: "[]",
         DefaultsKey.screenshotOpenEditorDirectly: false,
         DefaultsKey.screenshotCopyToClipboard: false,
+        DefaultsKey.screenshotCopyImageOnly: false,
         DefaultsKey.screenshotAddToShelf: false,
         DefaultsKey.screenshotPreviewPosition: ScreenshotSupport.QuickPreviewPosition.automatic.rawValue,
         DefaultsKey.screenshotPreviewTakesFocus: true,
@@ -2639,6 +2645,12 @@ enum Defaults {
 
     static func sanitizedAutoQuitExceptions(_ bundleIDs: [String]) -> [String] {
         sanitizedBundleIdentifierList(mandatoryAutoQuitExceptionBundleIDs + bundleIDs)
+    }
+
+    static func sanitizedAutoQuitDockApps(_ bundleIDs: [String]) -> [String] {
+        sanitizedBundleIdentifierList(bundleIDs).filter {
+            !mandatoryAutoQuitExceptionBundleIDs.contains($0)
+        }
     }
 
     static func sanitizedDiskExclusionList(_ list: [String]) -> [String] {
