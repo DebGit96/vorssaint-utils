@@ -49,6 +49,10 @@ extension KeepAwakeLidSleepContract {
         static var calls: [Bool] = []
         static var results = [true]
         static var disabled = false
+        static var credentialPermits = 0
+        static var credentialReleases = 0
+        static func permitCredentialRequest() { credentialPermits += 1 }
+        static func releaseCredentialAfterQueuedWrites() { credentialReleases += 1 }
         static var configured = true
         static var installCompletions: [(Bool) -> Void] = []
         static let sleepStateQueue = DispatchQueue.native
@@ -432,5 +436,22 @@ enum KeepAwakeClamshellTests {
         C.AdminShell.answer(true); C.drain()
         expect(!C.Sudoers.disabled && !C.UserDefaults.standard.bool(forKey: C.DefaultsKey.sleepDisabledFlag),
                "late setup probes cannot resurrect the override cleared by authorized restore")
+
+        // Credential policy: only switching closed-lid mode on may ask for the
+        // password; switching it off drops the copy held in memory.
+        let credential = C.reset(); credential.clamshellPreferred = false
+        C.Sudoers.credentialPermits = 0; C.Sudoers.credentialReleases = 0
+        credential.activate(minutes: 15); C.drain()
+        credential.deactivate(reason: .timer); C.drain()
+        credential.refreshPasswordlessStatus(); C.drain()
+        credential.recoverIfNeeded(); C.drain()
+        expect(C.Sudoers.credentialPermits == 0,
+               "sessions, status refreshes and launch recovery never permit a credential request")
+        credential.clamshellPreferred = true; C.drain()
+        expect(C.Sudoers.credentialPermits == 1 && C.Sudoers.credentialReleases == 0,
+               "switching closed-lid mode on permits exactly one credential request")
+        credential.clamshellPreferred = false; C.drain()
+        expect(C.Sudoers.credentialPermits == 1 && C.Sudoers.credentialReleases == 1,
+               "switching closed-lid mode off releases the held credential")
     }
 }

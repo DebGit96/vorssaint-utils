@@ -44,6 +44,9 @@ final class KeepAwakeManager: ObservableObject {
             clamshellSetupFailed = false
             guard !isTerminating else { return }
             if clamshellPreferred {
+                // Only switching this on may read the keychain or ask for the
+                // password; every other path uses the copy held from here.
+                Sudoers.permitCredentialRequest()
                 if !sessionPausedForScreenLock { applyClamshellPreference() }
             } else if clamshellNeedsRestore {
                 clamshellSetupInProgress = false
@@ -53,6 +56,7 @@ final class KeepAwakeManager: ObservableObject {
                 clamshellSetupInProgress = false
                 clamshellSetupID = nil
             }
+            if !clamshellPreferred { Sudoers.releaseCredentialAfterQueuedWrites() }
         }
     }
 
