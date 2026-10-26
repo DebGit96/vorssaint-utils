@@ -38,6 +38,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
     private var metricAnchorSwitchSerial = 0
     private var popoverCloseCompletions: [() -> Void] = []
     private var isTerminating = false
+    private var terminationSignal: DispatchSourceSignal?
     private var inputSourceRestorationPending = false
     private var cancellables = Set<AnyCancellable>()
     private var settingsWindow: NSWindow?
@@ -58,6 +59,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
+        // SIGTERM (an update script stopping the app, `pkill`, build.sh)
+        // quits normally instead of killing the process, so teardown runs:
+        // keep-awake keeps its session for a deliberate restart and turns a
+        // closed-lid override off with the password it already holds.
+        signal(SIGTERM, SIG_IGN)
+        let termination = DispatchSource.makeSignalSource(signal: SIGTERM, queue: .main)
+        termination.setEventHandler { NSApp.terminate(nil) }
+        termination.resume()
+        terminationSignal = termination
         // Before any window exists, so nothing is ever built with the wrong
         // appearance and then repainted.
         AppAppearanceController.shared.apply()
@@ -155,7 +165,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         HotkeyManager.shared.syncWithPreferences()
 
         KeepAwakeManager.shared.recoverIfNeeded {
-            KeepAwakeManager.shared.activateOnLaunchIfNeeded()
+            if !KeepAwakeManager.shared.resumeAfterDeliberateRestartIfNeeded() {
+                KeepAwakeManager.shared.activateOnLaunchIfNeeded()
+            }
         }
         FanControlService.recoverIfNeeded()
         SpacesOrderHold.recoverIfNeeded()

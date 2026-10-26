@@ -390,7 +390,8 @@ final class StatusItemController {
                 mustShowForSignal: signal || keepAwakeSignal)
         mainItemHiddenByChoice = mainItemHidden
         let keepAwakeActive = KeepAwakeManager.shared.isActive
-        let clamshellActive = KeepAwakeManager.shared.clamshellActive
+        // The pip also marks an override left on that still needs the password to clear.
+        let clamshellActive = KeepAwakeManager.shared.clamshellActive || KeepAwakeManager.shared.clamshellOverrideStuck
 
         // refresh() runs on every monitor tick and lands here; re-rendering
         // the same image every 2 seconds would be wasted composition, so the

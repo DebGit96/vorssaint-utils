@@ -83,6 +83,8 @@ final class KeepAwakeManager: ObservableObject {
     private var mouseJiggleTimer: Timer?
     private var pendingMouseReturn: DispatchWorkItem?
     private var defaultsObserver: AnyCancellable?
+    private var sessionSnapshotObserver: AnyCancellable?
+    private var sessionSnapshotScheduled = false
     private var screenParametersObserver: NSObjectProtocol?
     private var screenLockObservers: [NSObjectProtocol] = []
     private var powerSourceRunLoopSource: CFRunLoopSource?
@@ -115,9 +117,16 @@ final class KeepAwakeManager: ObservableObject {
     private var preferenceSyncScheduled = false
 
     private init() {
-        clamshellPreferred = UserDefaults.standard.bool(forKey: DefaultsKey.clamshellPreferred)
+        // Closed-lid mode always starts off: switching it on is the one moment
+        // the app may ask for the elevation password, so no launch, including
+        // the relaunch after an unattended update, ever does.
+        clamshellPreferred = false
+        UserDefaults.standard.set(false, forKey: DefaultsKey.clamshellPreferred)
         dimScreenOnLidClose = UserDefaults.standard.bool(forKey: DefaultsKey.dimScreenOnLidClose)
         refreshPasswordlessStatus()
+        sessionSnapshotObserver = Publishers.CombineLatest4($isActive, $endDate, $sessionMinutes, $sessionTrigger)
+            .dropFirst()
+            .sink { [weak self] _ in self?.scheduleSessionSnapshot() }
         // Every settings write announces itself, including the ones made from
         // inside this class, so a burst folds into a single reply on the next
         // turn of the run loop rather than one full pass per write.
@@ -300,6 +309,62 @@ final class KeepAwakeManager: ObservableObject {
               !isActive else { return }
         activate(minutes: Defaults.sanitizedDefaultDuration(
             UserDefaults.standard.integer(forKey: DefaultsKey.defaultDuration)))
+    }
+
+    // MARK: - Deliberate restart
+
+    /// Resumes the manual session saved before a deliberate restart (see
+    /// KeepAwakeRestartSupport) with the time it had left. The marker and the
+    /// snapshot are consumed either way. Returns whether a session resumed.
+    @discardableResult
+    func resumeAfterDeliberateRestartIfNeeded(now: Date = Date()) -> Bool {
+        let defaults = UserDefaults.standard
+        let marker = defaults.double(forKey: DefaultsKey.keepAwakeRestartHandoff)
+        let snapshot = KeepAwakeRestartSupport.Snapshot(
+            dictionary: defaults.dictionary(forKey: DefaultsKey.keepAwakeRestartSnapshot))
+        defaults.removeObject(forKey: DefaultsKey.keepAwakeRestartHandoff)
+        guard !isActive else { return false }
+        defaults.removeObject(forKey: DefaultsKey.keepAwakeRestartSnapshot)
+        guard AppFeature.keepAwake.isAvailable,
+              case let .resume(end, minutes) = KeepAwakeRestartSupport.plan(markerEpoch: marker,
+                                                                            snapshot: snapshot, now: now)
+        else { return false }
+        activate(end: end, trigger: .manual)
+        sessionMinutes = isActive ? minutes : nil
+        if isActive { Self.log.log("resumed the keep-awake session after a deliberate restart") }
+        return isActive
+    }
+
+    private func scheduleSessionSnapshot() {
+        guard !sessionSnapshotScheduled else { return }
+        sessionSnapshotScheduled = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.sessionSnapshotScheduled = false
+            self.saveSessionSnapshot()
+        }
+    }
+
+    /// Records the running manual session for a deliberate restart. Quitting
+    /// keeps the last record: only a fresh restart marker makes it resume.
+    /// Automatic sessions are left to the automation, which re-evaluates at launch.
+    private func saveSessionSnapshot() {
+        guard !isTerminating else { return }
+        if isActive, sessionTrigger == .manual {
+            UserDefaults.standard.set(KeepAwakeRestartSupport.Snapshot(end: endDate, minutes: sessionMinutes).dictionary,
+                                      forKey: DefaultsKey.keepAwakeRestartSnapshot)
+        } else {
+            UserDefaults.standard.removeObject(forKey: DefaultsKey.keepAwakeRestartSnapshot)
+        }
+    }
+
+    /// The closed-lid override is still set although nothing holds it:
+    /// turning it off needed the elevation password, which was not at hand
+    /// (a crash, or a restore refused without a prompt). The menu bar badge
+    /// shows it until the next closed-lid session turns it off.
+    var clamshellOverrideStuck: Bool {
+        recoveryCompleted && !clamshellActive && !clamshellEnablePending && !clamshellRestorePending
+            && UserDefaults.standard.bool(forKey: DefaultsKey.sleepDisabledFlag)
     }
 
     func extend(minutes: Int) {

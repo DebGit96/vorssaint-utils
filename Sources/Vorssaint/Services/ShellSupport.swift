@@ -319,6 +319,12 @@ enum Sudoers {
         }
     }
 
+    /// Restoring sleep never opens the administrator prompt: it runs from
+    /// timers, launch recovery and unattended restarts, none of which may wait
+    /// for input. A refused restore keeps the recovery marker, and the menu bar
+    /// badge shows the override until the next closed-lid session turns it off.
+    static var allowsAuthorizationPrompts = false
+
     /// Completes earlier probes before authorization can restore sleep and
     /// suspends later probes until it finishes. The queue remains free for a
     /// silent restore during quit; the main-thread guard cancels stale prompts.
@@ -341,7 +347,7 @@ enum Sudoers {
                 return
             }
             DispatchQueue.main.async {
-                guard shouldProceed() else {
+                guard shouldProceed(), allowsAuthorizationPrompts else {
                     finish(false)
                     return
                 }
