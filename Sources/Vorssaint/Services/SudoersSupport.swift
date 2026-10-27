@@ -9,6 +9,9 @@ import Security
 enum SudoersSupport {
     static var mockElevationPromptHandler: (((String?) -> Void) -> Void)?
     static var verificationRunner: (([String], String) -> (status: Int32, output: String))?
+    /// Test seam for the `sudo -n pmset disablesleep` call, given the arguments after `sudo`. Tests set it
+    /// so they never run the real sudo, whose result depends on the machine's rules and rewrites a system setting.
+    static var nonInteractiveSudoRunner: (([String]) -> (status: Int32, output: String))?
     static var primaryKeychainService = "vorssaint-sudo"
 
     /// Saves the elevation password to the macOS login keychain.
