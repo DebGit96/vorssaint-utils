@@ -504,6 +504,14 @@ enum PreferencesFeatureTests {
         var legacyRemovals: [String] = []
         SudoersSupport.legacyKeychainServices = [legacyService]
         SudoersSupport.legacyItemRemover = { service, _ in legacyRemovals.append(service) }
+        // Never run the real `sudo -n pmset` of the machine the tests run on: its verdict depends on that
+        // machine's sudoers rule and PAM policy, and where it succeeds it rewrites the system setting.
+        // Denied is the enterprise case this block exercises (PAM refuses non-interactive sudo).
+        var sudoProbes: [[String]] = []
+        SudoersSupport.nonInteractiveSudoRunner = { args in
+            sudoProbes.append(args)
+            return (1, "sudo: a password is required")
+        }
 
         // Enterprise lifecycle: Sudoers.install returns false when prompt is canceled
         var installCancelResult: Bool?
@@ -665,6 +673,10 @@ enum PreferencesFeatureTests {
         suite.expect(!Sudoers.holdsCredential && legacyRemovals.last == legacyService,
                "Sudoers.remove also drops the held password and the legacy item")
 
+        suite.expect(!sudoProbes.isEmpty && sudoProbes.allSatisfy { $0.first == "-n" && $0.contains("disablesleep") },
+               "every non-interactive sudo probe went through the test seam, never to the real sudo")
+
+        SudoersSupport.nonInteractiveSudoRunner = nil
         SudoersSupport.primaryKeychainService = originalPrimary
         SudoersSupport.keychainServices = originalServices
         SudoersSupport.legacyKeychainServices = originalLegacy

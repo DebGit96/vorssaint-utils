@@ -354,7 +354,9 @@ enum Sudoers {
                                            category: "sudoers")
 
     private static func pmsetDisableSleepOnQueue(_ on: Bool) -> Bool {
-        let standardResult = Shell.run("/usr/bin/sudo", ["-n", "/usr/bin/pmset", "disablesleep", on ? "1" : "0"])
+        let sudoArguments = ["-n", "/usr/bin/pmset", "disablesleep", on ? "1" : "0"]
+        let standardResult = SudoersSupport.nonInteractiveSudoRunner?(sudoArguments)
+            ?? Shell.run("/usr/bin/sudo", sudoArguments)
         if standardResult.status == 0 {
             return true
         }
