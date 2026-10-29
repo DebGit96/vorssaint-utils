@@ -7,9 +7,18 @@ All notable changes to this project are documented here. The format follows
 ## [Unreleased]
 
 ### Summary
-More reliable window switching, screenshots, audio and Settings, with safer fan recovery, better monitoring and optional volume controls in the music player.
+Safer Shelf drags and app removal, with more reliable window switching, quit protection, keyboard shortcuts, clipboard navigation, screenshots, image exports, audio, URL Cleaner and Settings. New controls add an all-windows shortcut, Claude account selection, configurable calendar countdowns, mouse-wheel zoom and app quitting, alongside clipboard source icons, more switcher columns, smoother sliders, English command search and command-line settings backups.
 
 ### Added
+- The window switcher has an optional All windows shortcut that cycles through individual windows across apps in every layout, including Large icons. Settings → Window switcher → All windows. Thanks to BrainAPP for the suggestion.
+- AI Agents can select an existing Claude Code account profile and show the monitored account. Local usage and plan limits follow the selected profile. Settings → Dynamic Island → Content → AI Agents → Claude account.
+- Dynamic Island level controls and the menu panel's mixer can be adjusted with a mouse wheel or trackpad. Thanks to @JB-OD.
+- Dynamic Island can start event countdowns 15, 30, 60 or 120 minutes before an event and keeps longer countdowns fully visible. Thanks to @Aryan-Saini.
+- An optional Zoom feature turns a modifier and mouse-wheel movement into app zoom or pinch gestures, with separate controls and scroll exceptions. Thanks to @ahmadhatahet.
+- An optional Quit apps panel can request normal quits for one app, all apps or all except the current app, with a saved list of apps to keep running. Thanks to @thedankest.
+- Command Bar converts days, weeks and fixed 365-day years, with English and Portuguese unit names. Thanks to @asim-sde.
+- Settings backups can be exported or imported with `--export-settings FILE` and `--import-settings FILE`; importing requires the app to be closed. Thanks to @DrakeEvans.
+- Clipboard history can show source app icons in list view. The option starts off and preserves file icons and selection controls. Settings → Clipboard history → Show source app icons in list view. Thanks to @ywu73.
 - Dynamic Island can show a volume row below the music player. Settings → Dynamic Island → Content → Music → Show volume in the player.
 - Screenshots can copy only image data, without a file URL, for apps that otherwise paste the file instead of its image. Settings → Screenshot → Copy as image only.
 - Quit on close can handle selected menu bar apps that keep a Dock icon after their last window closes. The list starts empty, and existing exceptions still apply. Settings → Quit on close → Menu bar apps to quit.
@@ -17,20 +26,40 @@ More reliable window switching, screenshots, audio and Settings, with safer fan 
 - Switch Spaces by dragging a button now accepts the middle mouse button, including upward drags for Mission Control and downward drags for App Exposé. A short click keeps its normal behavior. Settings → Mouse → Mouse button shortcuts.
 
 ### Changed
+- Homebrew opens installer, setup and password-required commands in the default app for Unix executables, without Terminal Automation consent. Thanks to @hertza-haeon.
+- Snippet lists in Settings and the library use alphabetical order. Thanks to @Zekuath.
 - Clipboard history uses a smaller decoded-thumbnail cache while keeping the window preview cache unchanged.
 - Command Bar accepts British unit spellings and spaced fluid-ounce names.
 - The window switcher's icon row, previews and hints use Liquid Glass when available and enabled.
+- The window switcher allows up to 10 columns while preserving Auto and screen-width limits. Settings → Window switcher → Options → Maximum columns. Thanks to @EugeneCarldotme.
 
 ### Fixed
+- Super key modifiers reach session-based hotkey tools regardless of startup order, including after login. Shortcut recording still owns the source key and its solo actions. Thanks to @complicat9d for the diagnosis.
+- Dynamic Island's clipboard supports Control-N and Control-P to move through history, matching the separate clipboard panel. Thanks to @avgrpg for the report.
+- The uninstaller checks Homebrew again for each app and pauses removal when its package status cannot be verified, with a refresh action to retry. Thanks to @tzimpel.
+- URL Cleaner cleans Safari links that carry rich previews, preserving supported previews and removing tracking from their navigation addresses. Thanks to @anschmieg for the diagnosis.
+- Shelf copies files dragged from inside app packages or libraries, preserving the originals. Ordinary files and whole packages can still move. Thanks to @Dexist-hub.
+- Image exports and newly saved profiles preserve a zero watermark margin. Thanks to @JeanBaeez.
+- URL Cleaner rules added from links with login details or ports now match the intended site. Previously saved rules containing login details or ports need to be added again. Thanks to @g1obalworlds.
+- The radial menu's action editor keeps its file picker over the editor window, avoiding an invisible panel on multi-display setups. Thanks to @saiganeshreddy7.
+- Mic Mute describes its device-control limits and reports known failures even when no microphone could be changed. Siri and some apps may still hear audio. Thanks to @sarat03 for the diagnosis.
+- The onboarding feature picker stays responsive when scrolling. Thanks to @yousefhamza.
+- Ultra-wide wallpaper previews stay within their own grid cells. Thanks to @ozanuslan.
+- Dynamic Island keeps volume, brightness and keyboard-light notices at a stable width as the percentage gains a digit. Thanks to @nikigan.
+- AI Agents cards keep "left" or "used" beside limit percentages in narrow layouts, letting the reset countdown give way when needed. Thanks to @sakemyali.
+- AI Agents settings previews show example limit percentages when account limits are unavailable. Thanks to @hrithiksaini99.
+- Command Bar finds English built-in commands and system answers when the interface uses another language. Thanks to @ywu73.
+- Clicking outside Dynamic Island dismisses its screenshot preview while preserving active sharing, pinned surfaces and clicks in copies on other displays. Thanks to @samanyudas.
+- Extra Brightness keeps app windows visible in Mission Control's desktop thumbnails. Thanks to @othmanehousni.
 - Features keeps its rows and scroll position stable when restart and unused-feature notices change.
 - The window switcher can travel directly to fullscreen and hidden-Space windows, recover their titles and observe closing without repeating a delivered close request.
 - Opening the window switcher uses fewer Accessibility requests when many windows are open.
 - The window switcher's search field stays within its panel and remains readable on light backgrounds and Liquid Glass.
 - Focus follows mouse preserves window order when Bring the window to the front is off.
+- Quit Protection follows changes to macOS app-switcher shortcuts and respects required Fn, preventing unprotected quits after Vorssaint's switcher closes. Thanks to @ruvelro.
 - Quit on close ignores confirmed stale surfaces left by closed windows while preserving minimized windows and windows on other Spaces.
 - The menu bar panel recovers from interrupted closes so later clicks can open it again.
 - Recent captures keeps its Clear history confirmation open and removes a pending confirmation when the palette closes.
-- The screenshot editor copies the latest edits when an earlier automatic copy is still pending.
 - Dynamic Island moves between displays without stretching, losing mouse input or restarting the music bars.
 - Volume keys advance supported USB outputs that round volume changes into fixed steps, and feedback follows the device's confirmed level.
 - Volume mixer preserves gain on supported multichannel outputs and rebuilds its audio capture when device formats or sample rates change.
@@ -54,7 +83,7 @@ More reliable window switching, screenshots, audio and Settings, with safer fan 
 - Screenshot area selection keeps its crosshair over other apps, and card shadows follow the captured window's own rounded corners.
 
 ### Contributors
-Thanks to @0miicr0n, @AB-boi, @ALaunert, @BerkUyku, @Blasted246, @buhbyehotmail, @derpyjoystick, @DigitalWestern, @dimashpt, @dimitarmanov, @dongzoor, @eliamarinen, @EugeneCarldotme, @fablau, @Forenzo, @globeatin, @Goonwb, @hash00, @i0208, @ilvesBogdan, @iva-zhu, @Jacob-9909, @jainnam-1993, @JB-OD, @JeanBaeez, @kidtaroi, @Likheet, @LJXXXD, @MartinSchlender, @Mikkeep, @mthsmb, @muratozturk5, @oc7opu5, @pedro-fontinele, @pedrozimmermannsoares, @raymondchins, @RKeyProg, @rochapaesc, @saarmiara, @shlee0932-afk, @Spokplacenta, @stors789, @TarGz, @ve3dy and @ygh1254.
+Thanks to @0miicr0n, @AB-boi, @ahmadhatahet, @ALaunert, @anschmieg, @Aryan-Saini, @asim-sde, @avgrpg, @BerkUyku, @Blasted246, @buhbyehotmail, @complicat9d, @derpyjoystick, @Dexist-hub, @DigitalWestern, @dimashpt, @dimitarmanov, @dongzoor, @DrakeEvans, @eliamarinen, @EugeneCarldotme, @fablau, @Forenzo, @g1obalworlds, @globeatin, @Goonwb, @hash00, @hertza-haeon, @hrithiksaini99, @i0208, @ilvesBogdan, @iva-zhu, @Jacob-9909, @jainnam-1993, @JB-OD, @JeanBaeez, @kidtaroi, @Likheet, @LJXXXD, @MartinSchlender, @Mikkeep, @mthsmb, @muratozturk5, @nikigan, @oc7opu5, @othmanehousni, @ozanuslan, @pedro-fontinele, @pedrozimmermannsoares, @raymondchins, @RKeyProg, @rochapaesc, @ruvelro, @saarmiara, @saiganeshreddy7, @sakemyali, @samanyudas, @shlee0932-afk, @Spokplacenta, @stors789, @TarGz, @thedankest, @tzimpel, @ve3dy, @ygh1254, @yousefhamza, @ywu73 and @Zekuath.
 
 ## [3.4.2] - 2026-10-21
 
