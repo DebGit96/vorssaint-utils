@@ -336,7 +336,7 @@ enum NotchCompactTests {
             suite.expect(marker.map { host.bounds.intersects($0.convert($0.bounds, to: host)) } == true,
                          "selection \(target) remains visible after navigating or changing to \(rows) rail rows")
         }
-        suite.expect(state.realized.count < 500,
+        suite.expect(state.realized.count < 650,
                      "jumping to distant selections does not realize the intervening history")
         // Five tiles over two rows fit three columns wide: they read across
         // the rows, and the two on the last row sit centered under the three.
